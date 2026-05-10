@@ -2,24 +2,53 @@
 
 f1tenth_gym_ros를 ROS2 Humble로 포팅한 버전
 
-## 설치
+## 사전 요구사항 설치
 
-### 사전 요구사항
-- Ubuntu 22.04
-- Docker
-- nvidia-docker2
-- rocker (`pip install rocker`)
-
-## 실행
-
+### 1. Docker
 ```bash
-git clone https://github.com/SeEEEun/f1tenth_gym_ros_humble
-cd f1tenth_gym_ros_humble
-docker build -t f1tenth_gym_ros_humble -f Dockerfile .
-rocker --nvidia --x11 --volume .:/sim_ws/src/f1tenth_gym_ros -- f1tenth_gym_ros_humble
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl gnupg
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list
+sudo apt-get update
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io
+sudo usermod -aG docker $USER
+newgrp docker
 ```
 
-## 컨테이너 안에서
+### 2. nvidia-docker2 (NVIDIA GPU 있는 경우)
+```bash
+curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+sudo apt-get update
+sudo apt-get install -y nvidia-docker2
+sudo systemctl restart docker
+```
+
+### 3. rocker
+```bash
+pip install rocker
+```
+
+## 시뮬레이터 설치 및 실행
+
+```bash
+# 1. 클론
+git clone https://github.com/SeEEEun/f1tenth_gym_ros_humble
+cd f1tenth_gym_ros_humble
+
+# 2. 이미지 빌드 (최초 1회, 약 10분 소요)
+docker build -t f1tenth_gym_ros_humble -f Dockerfile .
+
+# 3. 실행 (NVIDIA GPU)
+rocker --nvidia --x11 --volume .:/sim_ws/src/f1tenth_gym_ros -- f1tenth_gym_ros_humble
+
+# 3. 실행 (GPU 없는 경우)
+docker-compose up
+```
+
+## 컨테이너 안에서 시뮬 실행
 
 ```bash
 source /opt/ros/humble/setup.bash
@@ -27,10 +56,28 @@ source install/local_setup.bash
 ros2 launch f1tenth_gym_ros gym_bridge_launch.py
 ```
 
-## 텔레옵 (새 터미널)
+## 텔레옵 (새 터미널에서)
 
 ```bash
 docker exec -it $(docker ps -q) /bin/bash
 source /opt/ros/humble/setup.bash
 ros2 run teleop_twist_keyboard teleop_twist_keyboard
+```
+
+키 조작: i=전진, k=정지, u/o=전진+회전, m/.=후진+회전
+
+## SLAM으로 맵 저장
+
+터미널 1 - 시뮬 실행 후, 터미널 2:
+```bash
+docker exec -it $(docker ps -q) /bin/bash
+source /opt/ros/humble/setup.bash
+ros2 launch slam_toolbox online_async_launch.py
+```
+
+터미널 3 - 텔레옵으로 맵 그리기 후 저장:
+```bash
+docker exec -it $(docker ps -q) /bin/bash
+source /opt/ros/humble/setup.bash
+ros2 run nav2_map_server map_saver_cli -f ~/maps/my_map
 ```
