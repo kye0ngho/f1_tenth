@@ -1,0 +1,7 @@
+waypoint_planner_node:
+  ros__parameters:
+    waypoint_csv: "/sim_ws/src/planning/waypoints/waypoints.csv"
+    path_topic: "/planning/path"
+    marker_topic: "/planning/markers"
+    frame_id: "map"
+    publish_rate: 2.0
