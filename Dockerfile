@@ -34,14 +34,30 @@ RUN apt-get update --fix-missing && \
                        tmux \
                        ros-humble-rviz2
 RUN apt-get -y dist-upgrade
-RUN pip3 install transforms3d
 
-# f1tenth gym
+# Python dependencies for f1tenth_gym
+# Use apt for large scientific packages to avoid PyPI wheel hash/download issues.
+RUN apt-get update --fix-missing && \
+    apt-get install -y \
+        python3-scipy \
+        python3-numba \
+        python3-pil \
+        python3-opengl \
+        python3-matplotlib && \
+    rm -rf /var/lib/apt/lists/*
+
+# Small Python packages from pip
+RUN python3 -m pip install --no-cache-dir \
+    gym==0.19.0 \
+    pyglet==1.4.11 \
+    cloudpickle==1.6.0 \
+    future \
+    transforms3d
+
 RUN git clone https://github.com/f1tenth/f1tenth_gym
 RUN cd f1tenth_gym && \
-    pip3 install -e .
+    python3 -m pip install --no-cache-dir -e . --no-deps
 
-# ros2 gym bridge
 RUN mkdir -p sim_ws/src/f1tenth_gym_ros
 COPY . /sim_ws/src/f1tenth_gym_ros
 RUN source /opt/ros/humble/setup.bash && \
@@ -64,4 +80,4 @@ RUN apt-get update && apt-get install -y \
     ros-humble-xacro \
     ros-humble-cartographer \
     ros-humble-cartographer-ros && \
-    pip3 install casadi matplotlib scipy
+    python3 -m pip install --no-cache-dir casadi==3.7.2 --no-deps
