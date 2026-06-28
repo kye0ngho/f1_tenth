@@ -44,6 +44,7 @@ setup(
             'adaptive_pure_pursuit_node = control.adaptive_pure_pursuit_node:main',
             'disparity_extender_node = control.disparity_extender_node:main',
             'stanley_controller_node = control.stanley_controller_node:main',
+            'corridor_follow_node = control.corridor_follow_node:main',
         ],
     },
 )

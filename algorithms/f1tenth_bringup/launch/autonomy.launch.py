@@ -28,6 +28,33 @@ def generate_launch_description():
             description='Use particle filter localization (true) or odom passthrough (false)'
         ),
 
+        # ── Map Server (particle filter 필수) ────────────────────────
+        Node(
+            package='localization',
+            executable='map_server_node',
+            name='map_server_node',
+            output='screen',
+            parameters=[{
+                'map_yaml': '/sim_ws/src/localization/maps/map.yaml',
+                'map_topic': '/map',
+                'frame_id': 'map',
+            }]
+        ),
+
+        # ── IMU 오도메트리 융합 (실차 권장) ──────────────────────────
+        Node(
+            package='localization',
+            executable='imu_odometry_node',
+            name='imu_odometry_node',
+            output='screen',
+            parameters=[{
+                'odom_topic': '/ego_racecar/odom',
+                'imu_topic': '/imu/data',
+                'output_topic': '/localization/odom_fused',
+                'alpha': 0.5,
+            }]
+        ),
+
         # ── Localization ──────────────────────────────────────────────
         # 시뮬: use_particle_filter:=false → localization_node (odom passthrough)
         # 실차: use_particle_filter:=true  → particle_filter_node (LiDAR+map MCL)
@@ -71,6 +98,19 @@ def generate_launch_description():
                 'initial_spread_theta': 0.3,
             }],
             # use_particle_filter:=true 시에만 실행
+        ),
+
+        # ── Path Smoother (컨트롤러에 부드러운 경로 제공) ────────────
+        Node(
+            package='planning',
+            executable='path_smoother_node',
+            name='path_smoother_node',
+            output='screen',
+            parameters=[{
+                'input_topic': '/planning/path',
+                'output_topic': '/planning/smooth_path',
+                'output_points': 300,
+            }]
         ),
 
         # ── Planning ──────────────────────────────────────────────────
@@ -378,6 +418,21 @@ def generate_launch_description():
                 'target_speed': 1.5,
                 'min_speed': 0.4,
                 'max_speed': 2.5,
+            }]
+        ),
+
+        # ── Corridor Follow (웨이포인트 없이 벽 중앙 추종) ────────────
+        Node(
+            package='control',
+            executable='corridor_follow_node',
+            name='corridor_follow_node',
+            output='screen',
+            parameters=[{
+                'scan_topic': '/scan',
+                'drive_topic': '/corridor/drive',
+                'k_p': 0.8,
+                'max_speed': 2.0,
+                'min_speed': 0.5,
             }]
         ),
 

@@ -4,6 +4,21 @@ localization_node:
     output_odom_topic: "/localization/odom"
     output_pose_topic: "/localization/pose"
 
+map_server_node:
+  ros__parameters:
+    map_yaml: "/sim_ws/src/localization/maps/map.yaml"
+    map_topic: "/map"
+    frame_id: "map"
+    publish_rate: 1.0
+
+imu_odometry_node:
+  ros__parameters:
+    odom_topic: "/ego_racecar/odom"
+    imu_topic: "/imu/data"
+    output_topic: "/localization/odom_fused"
+    alpha: 0.5
+    gyro_bias_samples: 100
+
 particle_filter_node:
   ros__parameters:
     map_topic: "/map"

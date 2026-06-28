@@ -37,6 +37,8 @@ setup(
         'console_scripts': [
             'localization_node = localization.localization_node:main',
             'particle_filter_node = localization.particle_filter_node:main',
+            'map_server_node = localization.map_server_node:main',
+            'imu_odometry_node = localization.imu_odometry_node:main',
         ],
     },
 )

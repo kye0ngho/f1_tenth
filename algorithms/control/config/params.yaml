@@ -97,6 +97,24 @@ debug_marker_node:
     publish_rate: 20.0
     scan_danger_range: 1.0
 
+corridor_follow_node:
+  ros__parameters:
+    scan_topic: "/scan"
+    drive_topic: "/corridor/drive"
+    error_topic: "/corridor/error"
+    left_angle_min_deg: 45.0
+    left_angle_max_deg: 135.0
+    right_angle_min_deg: -135.0
+    right_angle_max_deg: -45.0
+    front_angle_deg: 30.0
+    wall_percentile: 20.0
+    k_p: 0.8
+    max_steering: 0.4189
+    max_speed: 2.0
+    min_speed: 0.5
+    front_target_dist: 2.0
+    front_safe_dist: 0.8
+
 disparity_extender_node:
   ros__parameters:
     scan_topic: "/scan"

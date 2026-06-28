@@ -51,6 +51,8 @@ setup(
             'race_line_optimizer_node = planning.race_line_optimizer_node:main',
             'overtake_planner_node = planning.overtake_planner_node:main',
             'trajectory_evaluator_node = planning.trajectory_evaluator_node:main',
+            'path_smoother_node = planning.path_smoother_node:main',
+            'speed_planner_node = planning.speed_planner_node:main',
         ],
     },
 )

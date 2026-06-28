@@ -80,6 +80,26 @@ telemetry_node:
     publish_rate: 1.0
     enable_file_log: true
 
+path_smoother_node:
+  ros__parameters:
+    input_topic: "/planning/path"
+    output_topic: "/planning/smooth_path"
+    frame_id: "map"
+    output_points: 300
+    min_segment_len: 0.01
+
+speed_planner_node:
+  ros__parameters:
+    input_csv: "/sim_ws/src/planning/waypoints/waypoints.csv"
+    output_csv: "/sim_ws/src/planning/waypoints/waypoints.csv"
+    a_lat_max: 4.0
+    a_lon_max: 3.0
+    a_brake: 5.0
+    v_min: 0.4
+    v_max: 3.0
+    smooth_window: 5
+    auto_plan_on_start: false
+
 race_line_optimizer_node:
   ros__parameters:
     input_csv: "/sim_ws/src/planning/waypoints/waypoints.csv"

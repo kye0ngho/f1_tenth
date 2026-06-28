@@ -212,6 +212,11 @@ CSV 컬럼: `x, y, yaw, speed`
 | emergency_recovery_node | safety | 완성 | 고착 감지 (2s) → 후진→회전→재출발 자동 복구 |
 | telemetry_node | planning | 완성 | 속도/제동/모드/랩타임 집계 → JSON 퍼블리시 + jsonl 로그 |
 | sector_timer_node | planning | 완성 | 트랙 구간 타이머. CSV 정의 섹터 순서 통과 감지 + 베스트 기록 |
+| path_smoother_node | planning | 완성 | 호 길이 파라미터화 + 주기 3차 스플라인 → /planning/smooth_path (300pts) |
+| speed_planner_node | planning | 완성 | 마찰 원 모델: 횡방향·종방향 가속도 제한 → 전진/후진 패스 최적 속도 |
+| map_server_node | localization | 완성 | PGM+YAML 지도 로드 → /map (Latched QoS). particle_filter 필수 |
+| imu_odometry_node | localization | 완성 | 자이로 적분 + odom 상보 필터 (α) → /localization/odom_fused |
+| corridor_follow_node | control | 완성 | 좌·우벽 거리 P제어로 회랑 중앙 추종. 웨이포인트 불필요 |
 | disparity_extender_node | control | 완성 | Disparity Extender — 차폭 기반 장애물 그림자 확장. gap_follow보다 정밀 |
 | stanley_controller_node | control | 완성 | Stanley 횡방향 제어 (δ = ψ_e + atan(k·e/v)). CTE 직접 보정 |
 | race_line_optimizer_node | planning | 완성 | Laplacian Smoothing 최소 곡률 최적화 → race_line.csv 저장 |
@@ -230,6 +235,10 @@ CSV 컬럼: `x, y, yaw, speed`
 - **실차 배포**: `drive_mode:=real` + `use_particle_filter:=true` + `vehicle_interface_node` 활성화
 - **전처리 scan 사용**: `gap_follow_node` / `safety_brake_node`의 `scan_topic` → `/scan_processed`
 - **섹터 정의**: `/sim_ws/src/planning/waypoints/sectors.csv` (x,y,radius,name 컬럼)
+- **스플라인 경로 사용**: 컨트롤러의 `path_topic` → `/planning/smooth_path`
+- **물리 속도 계획**: `speed_planner_node`의 `~/plan` 서비스 호출 후 재주행
+- **회랑 추종 모드**: `behavior_selector`의 `gap_drive_topic` → `/corridor/drive`
+- **실차 IMU 융합**: 컨트롤러의 `odom_topic` → `/localization/odom_fused`
 
 ---
 
