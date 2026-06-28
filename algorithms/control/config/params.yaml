@@ -32,3 +32,148 @@ pure_pursuit_node:
     servo_max: 1.0
 
     control_rate: 30.0
+
+gap_follow_node:
+  ros__parameters:
+    scan_topic: "/scan"
+    odom_topic: "/ego_racecar/odom"
+    drive_topic: "/gap_follow/drive"
+
+    max_range: 3.0
+    safety_bubble: 0.3
+    scan_field_deg: 180.0
+    min_gap_size: 3
+
+    max_speed: 1.5
+    min_speed: 0.5
+    corner_slowdown_gain: 1.5
+    max_steering_angle: 0.4189
+    wheelbase: 0.33
+
+behavior_selector_node:
+  ros__parameters:
+    waypoint_drive_topic: "/pure_pursuit/drive"
+    gap_drive_topic: "/gap_follow/drive"
+    output_drive_topic: "/control/drive"
+    scan_topic: "/scan"
+    mode_topic: "/behavior/mode"
+    obstacle_range: 1.5
+    obstacle_clear_range: 2.0
+    scan_field_deg: 60.0
+
+mpc_node:
+  ros__parameters:
+    odom_topic: "/localization/odom"
+    path_topic: "/planning/path"
+    drive_topic: "/mpc/drive"
+    pred_path_topic: "/mpc/predicted_path"
+    frame_id: "map"
+
+    wheelbase: 0.33
+    dt: 0.1
+    horizon: 10
+
+    max_steering: 0.4189
+    max_speed: 2.0
+    min_speed: 0.3
+    max_accel: 2.0
+    target_speed: 1.5
+
+    w_cte: 2.0
+    w_eth: 1.5
+    w_v: 0.5
+    w_delta: 0.1
+    w_a: 0.05
+    w_ddelta: 2.0
+    w_da: 0.5
+
+    control_rate: 20.0
+
+debug_marker_node:
+  ros__parameters:
+    output_topic: "/debug/markers"
+    frame_id: "map"
+    scan_frame_id: "ego_racecar/laser"
+    publish_rate: 20.0
+    scan_danger_range: 1.0
+
+disparity_extender_node:
+  ros__parameters:
+    scan_topic: "/scan"
+    odom_topic: "/ego_racecar/odom"
+    drive_topic: "/disparity_ext/drive"
+    car_width: 0.30
+    max_range: 4.0
+    disparity_threshold: 0.5
+    scan_field_deg: 180.0
+    max_speed: 2.0
+    min_speed: 0.5
+    corner_gain: 1.2
+    max_steering_angle: 0.4189
+    wheelbase: 0.33
+
+stanley_controller_node:
+  ros__parameters:
+    odom_topic: "/localization/odom"
+    path_topic: "/planning/path"
+    drive_topic: "/stanley/drive"
+    marker_topic: "/stanley/markers"
+    frame_id: "map"
+    wheelbase: 0.33
+    k: 1.0
+    k_soft: 0.3
+    max_steering_angle: 0.4189
+    target_speed: 1.5
+    min_speed: 0.4
+    max_speed: 2.5
+    speed_curvature_gain: 2.0
+    lookahead_speed_points: 8
+    kp: 1.0
+    ki: 0.0
+    kd: 0.05
+    control_rate: 30.0
+
+adaptive_pure_pursuit_node:
+  ros__parameters:
+    odom_topic: "/localization/odom"
+    path_topic: "/planning/path"
+    drive_topic: "/adaptive_pp/drive"
+    marker_topic: "/adaptive_pp/markers"
+    frame_id: "map"
+    wheelbase: 0.33
+    L_min: 0.5
+    L_max: 3.0
+    k_v: 0.6
+    target_speed: 1.5
+    min_speed: 0.4
+    max_speed: 2.5
+    corner_speed_gain: 2.5
+    lookahead_speed_points: 10
+    max_steering_angle: 0.4189
+    kp: 1.2
+    ki: 0.0
+    kd: 0.05
+    control_rate: 30.0
+
+vehicle_interface_node:
+  ros__parameters:
+    drive_topic: "/drive"
+    joy_topic: "/joy"
+    motor_speed_topic: "/commands/motor/speed"
+    servo_topic: "/commands/servo/position"
+    estop_topic: "/vehicle/estop"
+
+    speed_to_erpm_gain: 3000.0
+    speed_to_erpm_offset: 0.0
+    servo_center: 0.5
+    servo_gain: -0.5
+    servo_min: 0.15
+    servo_max: 0.85
+    max_speed_real: 2.0
+    max_steering: 0.4189
+
+    deadman_button: 4
+    estop_button: 5
+    joy_speed_axis: 1
+    joy_steer_axis: 3
+    joy_max_speed: 1.5

@@ -36,6 +36,7 @@ setup(
     entry_points={
         'console_scripts': [
             'localization_node = localization.localization_node:main',
+            'particle_filter_node = localization.particle_filter_node:main',
         ],
     },
 )

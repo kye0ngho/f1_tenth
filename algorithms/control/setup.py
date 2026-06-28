@@ -36,6 +36,14 @@ setup(
     entry_points={
         'console_scripts': [
             'pure_pursuit_node = control.pure_pursuit_node:main',
+            'gap_follow_node = control.gap_follow_node:main',
+            'behavior_selector_node = control.behavior_selector_node:main',
+            'mpc_node = control.mpc_node:main',
+            'debug_marker_node = control.debug_marker_node:main',
+            'vehicle_interface_node = control.vehicle_interface_node:main',
+            'adaptive_pure_pursuit_node = control.adaptive_pure_pursuit_node:main',
+            'disparity_extender_node = control.disparity_extender_node:main',
+            'stanley_controller_node = control.stanley_controller_node:main',
         ],
     },
 )

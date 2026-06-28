@@ -9,3 +9,53 @@ safety_brake_node:
     min_ttc: 0.5
     brake_distance: 0.3
     scan_field_deg: 60.0
+
+scan_preprocessor_node:
+  ros__parameters:
+    scan_input_topic: "/scan"
+    scan_output_topic: "/scan_processed"
+    median_window: 3
+    range_min_override: 0.05
+    range_max_override: 20.0
+    limit_field_deg: 0.0
+
+watchdog_node:
+  ros__parameters:
+    drive_topic: "/drive"
+    alert_topic: "/watchdog/alert"
+    status_topic: "/watchdog/status"
+    check_rate: 10.0
+    odom_timeout: 1.0
+    path_timeout: 3.0
+    drive_timeout: 1.0
+
+opponent_tracker_node:
+  ros__parameters:
+    scan_topic: "/scan"
+    markers_topic: "/obstacles/markers"
+    nearest_topic: "/obstacles/nearest_dist"
+    poses_topic: "/obstacles/poses"
+    scan_frame_id: "ego_racecar/laser"
+    max_range: 6.0
+    cluster_dist: 0.3
+    min_cluster_points: 3
+    max_cluster_points: 80
+    max_cluster_size: 1.0
+    velocity_alpha: 0.3
+
+emergency_recovery_node:
+  ros__parameters:
+    odom_topic: "/ego_racecar/odom"
+    drive_input_topic: "/control/drive"
+    drive_output_topic: "/drive"
+    state_topic: "/emergency_recovery/state"
+    active_topic: "/emergency_recovery/active"
+    stuck_detect_time: 2.0
+    stuck_speed_threshold: 0.05
+    cmd_speed_threshold: 0.15
+    reverse_speed: -0.5
+    reverse_time: 1.5
+    turn_steer_angle: 0.35
+    turn_time: 1.0
+    resume_time: 0.5
+    check_rate: 20.0

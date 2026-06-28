@@ -5,7 +5,7 @@
 Claude Code가 자율적으로 작업한다. 아래 원칙을 따른다:
 
 - **확인 없이 진행**: 파일 생성/수정/빌드/실행은 모두 자율 수행
-- **커밋 규칙**: 노드 하나 완성될 때마다 한국어 커밋 메시지로 커밋 (푸시는 사용자가 직접)
+- **커밋**: 사용자가 명시적으로 요청할 때만 커밋
 - **금지 작업**: `rm -rf`, 워크스페이스 외부 경로 수정, git force push
 - **작업 단위**: 노드 하나를 완전히 구현 → 빌드 → 검증까지 한 사이클로 완료
 - **막히면**: 에러 로그를 분석하고 3회까지 자가 수정 시도. 그래도 안 되면 원인과 시도 내역을 보고
@@ -103,21 +103,23 @@ algorithms/<패키지명>/
 ```
 /ego_racecar/odom
       ↓
-localization_node
+localization_node → /localization/odom
       ↓
-/localization/odom, /localization/pose
-      ↓
-pure_pursuit_node ← /planning/path
-      ↓
-/control/drive  (raw — 안전 검사 전)
-      ↓
-safety_brake_node ← /scan (LiDAR)
-      ↓
-/drive  (AckermannDriveStamped — 시뮬레이터 입력)
-/safety/braking (Bool — 제동 상태)
+pure_pursuit_node ← /planning/path → /pure_pursuit/drive ──┐
+                                                            ↓
+gap_follow_node ← /scan ──────────── /gap_follow/drive ──→ behavior_selector_node
+                                                            │ (/scan으로 자동 전환)
+                                                            ↓
+                                                     /control/drive
+                                                            ↓
+                                              safety_brake_node ← /scan
+                                                            ↓
+                                                         /drive (최종)
 
-waypoint_recorder_node → waypoints.csv (x, y, yaw, speed)
+waypoint_recorder_node → waypoints.csv
+velocity_profile_node  → waypoints.csv (속도 최적화)
 waypoint_planner_node  ← waypoints.csv → /planning/path, /planning/markers
+lap_timer_node ← /ego_racecar/odom → /lap_timer/lap_time, /lap_timer/status
 ```
 
 ---
@@ -185,43 +187,49 @@ CSV 컬럼: `x, y, yaw, speed`
 
 ## 현재 완성된 노드
 
-| 노드 | 상태 | 설명 |
-|------|------|------|
-| localization_node | 완성 (기능 제한) | 시뮬 odom 패스스루. 실차용 localization 미구현 |
-| waypoint_recorder_node | 완성 | 텔레옵 경로 기록, 루프 클로저, 속도 스무딩, RViz 마커, 서비스 제어 |
-| waypoint_planner_node | 완성 | CSV → Path + MarkerArray 퍼블리시 (2Hz) |
-| pure_pursuit_node | 완성 | Pure Pursuit + PID 속도 제어, sim/real 두 모드. 출력: /control/drive |
-| safety_brake_node | 완성 | LiDAR TTC 기반 긴급 정지. /control/drive → /drive 인터셉터 |
+| 노드 | 패키지 | 상태 | 설명 |
+|------|--------|------|------|
+| localization_node | localization | 완성 | 시뮬 odom 패스스루 |
+| particle_filter_node | localization | 완성 | MCL — likelihood field. use_particle_filter:=true로 활성화 |
+| waypoint_recorder_node | planning | 완성 | 텔레옵 경로 기록, 루프 클로저, 속도 스무딩, 서비스 제어 |
+| waypoint_planner_node | planning | 완성 | CSV → /planning/path + MarkerArray (2Hz) |
+| velocity_profile_node | planning | 완성 | 곡률 기반 속도 최적화 → CSV 덮어쓰기 |
+| lap_timer_node | planning | 완성 | 출발점 통과 감지 → 랩 타임 측정/로그 |
+| data_logger_node | planning | 완성 | 주행 상태 CSV 저장 (x,y,yaw,speed,steering,braking,mode) |
+| waypoint_manager_node | planning | 완성 | 다중 CSV 관리, 런타임 전환, 재로드 서비스 |
+| goal_pose_planner_node | planning | 완성 | /goal_pose → /planning/goal_path (선형 보간) |
+| pure_pursuit_node | control | 완성 | Pure Pursuit + PID 속도 제어. 출력: /pure_pursuit/drive |
+| gap_follow_node | control | 완성 | Follow the Gap 반응형 회피. 출력: /gap_follow/drive |
+| behavior_selector_node | control | 완성 | /scan 기반 waypoint ↔ gap_follow 자동 전환 |
+| mpc_node | control | 완성 | Kinematic Bicycle + SLSQP. 출력: /mpc/drive. N=10, dt=0.1s |
+| debug_marker_node | control | 완성 | RViz 종합 디버그 마커 (차량/경로/LiDAR/모드 텍스트) |
+| vehicle_interface_node | control | 완성 | 실차 VESC 인터페이스 + 조이스틱 수동/자율 전환 |
+| adaptive_pure_pursuit_node | control | 완성 | 속도 적응형 룩어헤드 (L_d=k_v*v+L_min) + 전방 곡률 피드포워드 감속 |
+| safety_brake_node | safety | 완성 | TTC 긴급 정지. /control/drive → /drive 인터셉터 |
+| scan_preprocessor_node | safety | 완성 | NaN 제거 + 미디언 필터. /scan → /scan_processed |
+| watchdog_node | safety | 완성 | 토픽 헬스 감시, 타임아웃 시 비상정지 |
+| opponent_tracker_node | safety | 완성 | LiDAR 클러스터링 → 동적 장애물 추적 + 속도 추정 (EMA) |
+| emergency_recovery_node | safety | 완성 | 고착 감지 (2s) → 후진→회전→재출발 자동 복구 |
+| telemetry_node | planning | 완성 | 속도/제동/모드/랩타임 집계 → JSON 퍼블리시 + jsonl 로그 |
+| sector_timer_node | planning | 완성 | 트랙 구간 타이머. CSV 정의 섹터 순서 통과 감지 + 베스트 기록 |
+| disparity_extender_node | control | 완성 | Disparity Extender — 차폭 기반 장애물 그림자 확장. gap_follow보다 정밀 |
+| stanley_controller_node | control | 완성 | Stanley 횡방향 제어 (δ = ψ_e + atan(k·e/v)). CTE 직접 보정 |
+| race_line_optimizer_node | planning | 완성 | Laplacian Smoothing 최소 곡률 최적화 → race_line.csv 저장 |
+| overtake_planner_node | planning | 완성 | 장애물 감지 → 횡방향 오프셋 경로 자동 생성 (/planning/routed_path) |
+| trajectory_evaluator_node | planning | 완성 | CTE (현재/RMS/최대) + 속도 오차 실시간 계산 + CSV 저장 |
 
 ---
 
-## 다음 구현 노드 (우선순위 순)
+## 확장 포인트
 
-### 1. `safety_brake_node` ✅ 완성
-
-### 2. `velocity_profile_node`
-
-웨이포인트 CSV의 곡률을 분석해 구간별 최적 속도를 재계산.
-직선 → max_speed, 코너 → 곡률에 반비례해 감속.
-출력: 속도가 최적화된 새 waypoints.csv
-
-### 3. `particle_filter_node` (또는 nav2 AMCL 연동)
-
-LiDAR + 맵 기반 실제 위치 추정. localization_node를 대체.
-시뮬에서는 odom이 ground truth이므로 실차 배포 단계에서 필요.
-
-### 4. `gap_follow_node`
-
-LiDAR 기반 반응형 장애물 회피 (Follow the Gap).
-behavior_selector_node와 함께 waypoint 추종 ↔ 장애물 회피 전환.
-
-### 5. `lap_timer_node`
-
-출발점 통과 감지 → 랩 타임 측정 및 로그 저장.
-
-### 6. `mpc_node` (장기 목표)
-
-Model Predictive Control로 Pure Pursuit 대체. 고속 정밀 주행.
+- **MPC를 기본 컨트롤러로**: `behavior_selector`의 `waypoint_drive_topic` → `/mpc/drive`
+- **Stanley 사용**: `behavior_selector`의 `waypoint_drive_topic` → `/stanley/drive`
+- **Disparity Extender 사용**: `behavior_selector`의 `gap_drive_topic` → `/disparity_ext/drive`
+- **오버테이크 활성화**: `pure_pursuit`의 `path_topic` → `/planning/routed_path`
+- **레이싱 라인 적용**: `waypoint_planner`의 `waypoint_csv` → `/sim_ws/src/planning/waypoints/race_line.csv`
+- **실차 배포**: `drive_mode:=real` + `use_particle_filter:=true` + `vehicle_interface_node` 활성화
+- **전처리 scan 사용**: `gap_follow_node` / `safety_brake_node`의 `scan_topic` → `/scan_processed`
+- **섹터 정의**: `/sim_ws/src/planning/waypoints/sectors.csv` (x,y,radius,name 컬럼)
 
 ---
 

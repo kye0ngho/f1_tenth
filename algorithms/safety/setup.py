@@ -36,6 +36,10 @@ setup(
     entry_points={
         'console_scripts': [
             'safety_brake_node = safety.safety_brake_node:main',
+            'scan_preprocessor_node = safety.scan_preprocessor_node:main',
+            'watchdog_node = safety.watchdog_node:main',
+            'opponent_tracker_node = safety.opponent_tracker_node:main',
+            'emergency_recovery_node = safety.emergency_recovery_node:main',
         ],
     },
 )

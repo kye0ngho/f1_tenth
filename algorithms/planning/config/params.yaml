@@ -6,6 +6,24 @@ waypoint_planner_node:
     frame_id: "map"
     publish_rate: 2.0
 
+lap_timer_node:
+  ros__parameters:
+    odom_topic: "/ego_racecar/odom"
+    lap_time_topic: "/lap_timer/lap_time"
+    status_topic: "/lap_timer/status"
+    trigger_radius: 0.5
+    min_lap_distance: 2.0
+    log_file: "/sim_ws/src/planning/waypoints/lap_times.txt"
+
+velocity_profile_node:
+  ros__parameters:
+    input_csv: "/sim_ws/src/planning/waypoints/waypoints.csv"
+    output_csv: "/sim_ws/src/planning/waypoints/waypoints.csv"
+    min_speed: 0.4
+    max_speed: 2.0
+    curvature_gain: 3.0
+    smooth_window: 5
+
 waypoint_recorder_node:
   ros__parameters:
     odom_topic: "/ego_racecar/odom"
@@ -20,3 +38,90 @@ waypoint_recorder_node:
     loop_closure_distance: 0.5
     loop_closure_min_waypoints: 20
     autostart: true
+
+data_logger_node:
+  ros__parameters:
+    odom_topic: "/ego_racecar/odom"
+    drive_topic: "/drive"
+    braking_topic: "/safety/braking"
+    mode_topic: "/behavior/mode"
+    log_dir: "/sim_ws/src/planning/logs"
+    log_rate: 20.0
+    auto_start: true
+
+waypoint_manager_node:
+  ros__parameters:
+    waypoint_dir: "/sim_ws/src/planning/waypoints"
+    waypoint_csv: ""
+    frame_id: "map"
+    publish_rate: 2.0
+
+goal_pose_planner_node:
+  ros__parameters:
+    odom_topic: "/ego_racecar/odom"
+    goal_topic: "/goal_pose"
+    path_topic: "/planning/goal_path"
+    status_topic: "/goal_planner/status"
+    frame_id: "map"
+    num_points: 50
+    goal_radius: 0.3
+    publish_rate: 5.0
+
+telemetry_node:
+  ros__parameters:
+    odom_topic: "/ego_racecar/odom"
+    drive_topic: "/drive"
+    braking_topic: "/safety/braking"
+    mode_topic: "/behavior/mode"
+    lap_time_topic: "/lap_timer/lap_time"
+    stats_topic: "/telemetry/stats"
+    avg_speed_topic: "/telemetry/avg_speed"
+    log_dir: "/sim_ws/src/planning/logs"
+    publish_rate: 1.0
+    enable_file_log: true
+
+race_line_optimizer_node:
+  ros__parameters:
+    input_csv: "/sim_ws/src/planning/waypoints/waypoints.csv"
+    output_csv: "/sim_ws/src/planning/waypoints/race_line.csv"
+    marker_topic: "/race_line/markers"
+    frame_id: "map"
+    half_track_width: 0.8
+    max_iterations: 500
+    learning_rate: 0.08
+    convergence_thr: 0.00001
+    min_speed: 0.4
+    max_speed: 2.5
+    speed_curvature_gain: 3.5
+    auto_optimize_on_start: false
+
+overtake_planner_node:
+  ros__parameters:
+    path_topic: "/planning/path"
+    output_topic: "/planning/routed_path"
+    odom_topic: "/ego_racecar/odom"
+    obstacles_dist_topic: "/obstacles/nearest_dist"
+    active_topic: "/overtake/active"
+    state_topic: "/overtake/state"
+    overtake_trigger_dist: 2.5
+    overtake_clear_dist: 4.0
+    lateral_offset: 0.6
+    frame_id: "map"
+
+trajectory_evaluator_node:
+  ros__parameters:
+    odom_topic: "/ego_racecar/odom"
+    path_topic: "/planning/path"
+    log_dir: "/sim_ws/src/planning/logs"
+    publish_rate: 10.0
+    target_speed: 1.5
+    window_size: 500
+
+sector_timer_node:
+  ros__parameters:
+    odom_topic: "/ego_racecar/odom"
+    sector_csv: "/sim_ws/src/planning/waypoints/sectors.csv"
+    default_radius: 1.0
+    min_sector_interval: 5.0
+    log_dir: "/sim_ws/src/planning/logs"
+    publish_rate: 10.0
