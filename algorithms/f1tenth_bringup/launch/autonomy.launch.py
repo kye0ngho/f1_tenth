@@ -21,6 +21,7 @@ def generate_launch_description():
             description='Path to waypoint CSV file'
         ),
 
+        # ── Localization ──────────────────────────────────────────────
         Node(
             package='localization',
             executable='localization_node',
@@ -33,6 +34,7 @@ def generate_launch_description():
             }]
         ),
 
+        # ── Planning ──────────────────────────────────────────────────
         Node(
             package='planning',
             executable='waypoint_planner_node',
@@ -47,6 +49,8 @@ def generate_launch_description():
             }]
         ),
 
+        # ── Control ───────────────────────────────────────────────────
+        # pure_pursuit → /control/drive (raw, not yet safety-checked)
         Node(
             package='control',
             executable='pure_pursuit_node',
@@ -58,7 +62,7 @@ def generate_launch_description():
                 'odom_topic': '/localization/odom',
                 'path_topic': '/planning/path',
 
-                'sim_drive_topic': '/drive',
+                'sim_drive_topic': '/control/drive',
 
                 'real_speed_topic': '/commands/motor/speed',
                 'real_servo_topic': '/commands/servo/position',
@@ -85,6 +89,25 @@ def generate_launch_description():
                 'servo_max': 1.0,
 
                 'control_rate': 30.0,
+            }]
+        ),
+
+        # ── Safety ────────────────────────────────────────────────────
+        # /control/drive + /scan → safety_brake_node → /drive (final)
+        Node(
+            package='safety',
+            executable='safety_brake_node',
+            name='safety_brake_node',
+            output='screen',
+            parameters=[{
+                'scan_topic': '/scan',
+                'odom_topic': '/ego_racecar/odom',
+                'drive_input_topic': '/control/drive',
+                'drive_output_topic': '/drive',
+                'brake_status_topic': '/safety/braking',
+                'min_ttc': 0.5,
+                'brake_distance': 0.3,
+                'scan_field_deg': 60.0,
             }]
         ),
     ])

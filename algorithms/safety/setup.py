@@ -2,7 +2,7 @@ from setuptools import setup
 from glob import glob
 import os
 
-package_name = 'planning'
+package_name = 'safety'
 
 setup(
     name=package_name,
@@ -25,22 +25,17 @@ setup(
             os.path.join('share', package_name, 'config'),
             glob('config/*.yaml')
         ),
-        (
-            os.path.join('share', package_name, 'waypoints'),
-            glob('waypoints/*.csv')
-        ),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
-    maintainer='jeonbotdae',
-    maintainer_email='jeonbotdae@example.com',
-    description='Waypoint path publisher for F1TENTH planning.',
+    maintainer='kim',
+    maintainer_email='ssi45di@gmail.com',
+    description='LiDAR-based safety brake for F1TENTH autonomy stack.',
     license='MIT',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'waypoint_planner_node = planning.waypoint_planner_node:main',
-            'waypoint_recorder_node = planning.waypoint_recorder_node:main',
+            'safety_brake_node = safety.safety_brake_node:main',
         ],
     },
 )

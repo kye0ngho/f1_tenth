@@ -97,6 +97,7 @@ algorithms/
 ├── localization
 ├── planning
 ├── control
+├── safety
 └── f1tenth_bringup
 ~~~
 
@@ -111,11 +112,11 @@ localization_node
         ↓
 pure_pursuit_node
         ↑
-/planning/path
-        ↑
-waypoint_planner_node
-        ↑
-waypoints.csv
+/planning/path          /control/drive (raw)
+        ↑                      ↓
+waypoint_planner_node  safety_brake_node ← /scan
+        ↑                      ↓
+waypoints.csv               /drive
 ~~~
 
 Output mode:
@@ -158,6 +159,7 @@ rocker --x11 \
   --volume ./algorithms/localization:/sim_ws/src/localization \
   --volume ./algorithms/planning:/sim_ws/src/planning \
   --volume ./algorithms/control:/sim_ws/src/control \
+  --volume ./algorithms/safety:/sim_ws/src/safety \
   --volume ./algorithms/f1tenth_bringup:/sim_ws/src/f1tenth_bringup \
   -- f1tenth_gym_ros_humble
 ~~~
@@ -170,6 +172,7 @@ rocker --nvidia --x11 \
   --volume ./algorithms/localization:/sim_ws/src/localization \
   --volume ./algorithms/planning:/sim_ws/src/planning \
   --volume ./algorithms/control:/sim_ws/src/control \
+  --volume ./algorithms/safety:/sim_ws/src/safety \
   --volume ./algorithms/f1tenth_bringup:/sim_ws/src/f1tenth_bringup \
   -- f1tenth_gym_ros_humble
 ~~~

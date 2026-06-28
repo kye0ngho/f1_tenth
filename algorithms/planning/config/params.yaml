@@ -5,3 +5,18 @@ waypoint_planner_node:
     marker_topic: "/planning/markers"
     frame_id: "map"
     publish_rate: 2.0
+
+waypoint_recorder_node:
+  ros__parameters:
+    odom_topic: "/ego_racecar/odom"
+    output_csv: "/sim_ws/src/planning/waypoints/waypoints.csv"
+    min_distance: 0.2
+    default_speed: 1.0
+    use_actual_speed: true
+    marker_topic: "/planning/record_markers"
+    frame_id: "map"
+    autosave_interval: 30.0
+    speed_smooth_window: 5
+    loop_closure_distance: 0.5
+    loop_closure_min_waypoints: 20
+    autostart: true

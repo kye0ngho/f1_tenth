@@ -1,0 +1,11 @@
+safety_brake_node:
+  ros__parameters:
+    scan_topic: "/scan"
+    odom_topic: "/ego_racecar/odom"
+    drive_input_topic: "/control/drive"
+    drive_output_topic: "/drive"
+    brake_status_topic: "/safety/braking"
+
+    min_ttc: 0.5
+    brake_distance: 0.3
+    scan_field_deg: 60.0
