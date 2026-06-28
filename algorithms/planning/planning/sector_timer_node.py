@@ -1,4 +1,5 @@
 import csv
+import json
 import math
 import os
 import time
@@ -163,13 +164,11 @@ class SectorTimerNode(Node):
             self.time_pub.publish(t)
 
         if self.sector_times:
-            import json
             split_data = {name: round(t, 3) for name, t in self.sector_times[-len(self.sectors):]}
             s = String(); s.data = json.dumps(split_data)
             self.split_pub.publish(s)
 
         if self.best_times:
-            import json
             b = String(); b.data = json.dumps({k: round(v, 3) for k, v in self.best_times.items()})
             self.best_pub.publish(b)
 

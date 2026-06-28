@@ -5,7 +5,7 @@ pure_pursuit_node:
     odom_topic: "/localization/odom"
     path_topic: "/planning/path"
 
-    sim_drive_topic: "/drive"
+    sim_drive_topic: "/pure_pursuit/drive"
 
     real_speed_topic: "/commands/motor/speed"
     real_servo_topic: "/commands/servo/position"
@@ -54,6 +54,8 @@ behavior_selector_node:
   ros__parameters:
     waypoint_drive_topic: "/pure_pursuit/drive"
     gap_drive_topic: "/gap_follow/drive"
+    overtake_drive_topic: "/adaptive_pp/drive"
+    overtake_active_topic: "/overtake/active"
     output_drive_topic: "/control/drive"
     scan_topic: "/scan"
     mode_topic: "/behavior/mode"
@@ -155,6 +157,8 @@ adaptive_pure_pursuit_node:
   ros__parameters:
     odom_topic: "/localization/odom"
     path_topic: "/planning/path"
+    overtake_path_topic: "/planning/routed_path"
+    overtake_active_topic: "/overtake/active"
     drive_topic: "/adaptive_pp/drive"
     marker_topic: "/adaptive_pp/markers"
     frame_id: "map"

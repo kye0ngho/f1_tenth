@@ -1,5 +1,6 @@
 import collections
 import csv
+import json
 import math
 import os
 import time
@@ -126,7 +127,6 @@ class TrajectoryEvaluatorNode(Node):
         self.cte_rms_pub.publish(Float32(data=cte_rms))
         self.spd_err_pub.publish(Float32(data=spd_err_mean))
 
-        import json
         report = {
             'elapsed_s': round(time.time() - self.session_start, 1),
             'cte': {

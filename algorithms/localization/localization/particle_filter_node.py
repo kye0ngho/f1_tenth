@@ -174,6 +174,8 @@ class ParticleFilterNode(Node):
     # RViz initial pose override
     # ------------------------------------------------------------------ #
     def _cb_initialpose(self, msg):
+        if self.particles is None:
+            return
         x = msg.pose.pose.position.x
         y = msg.pose.pose.position.y
         q = msg.pose.pose.orientation

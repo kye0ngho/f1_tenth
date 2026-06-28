@@ -117,7 +117,6 @@ class GapFollowNode(Node):
         # 가장 가까운 장애물 주변을 0으로 마스킹
         result = list(ranges)
         for i, angle in enumerate(angles):
-            arc = abs(angles[min_i]) if min_r > 1e-3 else 0.0
             angular_spread = math.atan2(self.safety_bubble, min_r) if min_r > 1e-3 else math.pi
             if abs(angle - angles[min_i]) <= angular_spread:
                 result[i] = 0.0

@@ -1,5 +1,6 @@
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
+from launch.conditions import IfCondition, UnlessCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
@@ -58,6 +59,7 @@ def generate_launch_description():
         # ── Localization ──────────────────────────────────────────────
         # 시뮬: use_particle_filter:=false → localization_node (odom passthrough)
         # 실차: use_particle_filter:=true  → particle_filter_node (LiDAR+map MCL)
+        # use_particle_filter:=false → odom 패스스루
         Node(
             package='localization',
             executable='localization_node',
@@ -68,9 +70,10 @@ def generate_launch_description():
                 'output_odom_topic': '/localization/odom',
                 'output_pose_topic': '/localization/pose',
             }],
-            condition=None  # 항상 실행 (use_particle_filter=false 시 기준)
+            condition=UnlessCondition(use_particle_filter)
         ),
 
+        # use_particle_filter:=true → MCL (LiDAR+map)
         Node(
             package='localization',
             executable='particle_filter_node',
@@ -97,7 +100,7 @@ def generate_launch_description():
                 'initial_spread_xy': 0.5,
                 'initial_spread_theta': 0.3,
             }],
-            # use_particle_filter:=true 시에만 실행
+            condition=IfCondition(use_particle_filter)
         ),
 
         # ── Path Smoother (컨트롤러에 부드러운 경로 제공) ────────────
@@ -236,7 +239,7 @@ def generate_launch_description():
             }]
         ),
 
-        # behavior_selector: /pure_pursuit/drive or /gap_follow/drive → /control/drive
+        # behavior_selector: WAYPOINT / GAP_FOLLOW / OVERTAKE → /control/drive
         Node(
             package='control',
             executable='behavior_selector_node',
@@ -245,6 +248,8 @@ def generate_launch_description():
             parameters=[{
                 'waypoint_drive_topic': '/pure_pursuit/drive',
                 'gap_drive_topic': '/gap_follow/drive',
+                'overtake_drive_topic': '/adaptive_pp/drive',
+                'overtake_active_topic': '/overtake/active',
                 'output_drive_topic': '/control/drive',
                 'scan_topic': '/scan',
                 'mode_topic': '/behavior/mode',
@@ -270,7 +275,7 @@ def generate_launch_description():
             }]
         ),
 
-        # /control/drive + /scan → safety_brake_node → /drive (final)
+        # /emergency/drive + /scan + /watchdog/alert → safety_brake_node → /drive (최종, 단일 퍼블리셔)
         Node(
             package='safety',
             executable='safety_brake_node',
@@ -279,23 +284,24 @@ def generate_launch_description():
             parameters=[{
                 'scan_topic': '/scan',
                 'odom_topic': '/ego_racecar/odom',
-                'drive_input_topic': '/control/drive',
+                'drive_input_topic': '/emergency/drive',
                 'drive_output_topic': '/drive',
                 'brake_status_topic': '/safety/braking',
+                'watchdog_alert_topic': '/watchdog/alert',
                 'min_ttc': 0.5,
                 'brake_distance': 0.3,
                 'scan_field_deg': 60.0,
             }]
         ),
 
-        # 토픽 헬스 감시
+        # 토픽 헬스 감시 → /watchdog/alert (Bool). 실제 estop은 safety_brake_node가 처리
         Node(
             package='safety',
             executable='watchdog_node',
             name='watchdog_node',
             output='screen',
             parameters=[{
-                'drive_topic': '/drive',
+                'alert_topic': '/watchdog/alert',
                 'odom_timeout': 1.0,
                 'path_timeout': 3.0,
                 'drive_timeout': 1.0,
@@ -386,6 +392,7 @@ def generate_launch_description():
             }]
         ),
 
+        # /control/drive → emergency_recovery (패스스루+복구 override) → /emergency/drive
         Node(
             package='safety',
             executable='emergency_recovery_node',
@@ -394,14 +401,14 @@ def generate_launch_description():
             parameters=[{
                 'odom_topic': '/ego_racecar/odom',
                 'drive_input_topic': '/control/drive',
-                'drive_output_topic': '/drive',
+                'drive_output_topic': '/emergency/drive',
                 'stuck_detect_time': 2.0,
                 'reverse_speed': -0.5,
                 'reverse_time': 1.5,
             }]
         ),
 
-        # ── 적응형 Pure Pursuit ──────────────────────────────────────
+        # ── 적응형 Pure Pursuit (오버테이크 시 /planning/routed_path 자동 전환) ─
         Node(
             package='control',
             executable='adaptive_pure_pursuit_node',
@@ -410,6 +417,8 @@ def generate_launch_description():
             parameters=[{
                 'odom_topic': '/localization/odom',
                 'path_topic': '/planning/path',
+                'overtake_path_topic': '/planning/routed_path',
+                'overtake_active_topic': '/overtake/active',
                 'drive_topic': '/adaptive_pp/drive',
                 'wheelbase': 0.33,
                 'L_min': 0.5,

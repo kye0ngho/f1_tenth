@@ -7,6 +7,7 @@ from rclpy.node import Node
 
 from ackermann_msgs.msg import AckermannDriveStamped
 from nav_msgs.msg import Odometry, Path
+from std_msgs.msg import Bool
 from visualization_msgs.msg import Marker, MarkerArray
 from geometry_msgs.msg import Point
 
@@ -32,6 +33,8 @@ class AdaptivePurePursuitNode(Node):
         # ── Parameters ──────────────────────────────────────────────
         self.declare_parameter('odom_topic', '/localization/odom')
         self.declare_parameter('path_topic', '/planning/path')
+        self.declare_parameter('overtake_path_topic', '/planning/routed_path')
+        self.declare_parameter('overtake_active_topic', '/overtake/active')
         self.declare_parameter('drive_topic', '/adaptive_pp/drive')
         self.declare_parameter('marker_topic', '/adaptive_pp/markers')
         self.declare_parameter('frame_id', 'map')
@@ -58,6 +61,8 @@ class AdaptivePurePursuitNode(Node):
         # ── Get params ──────────────────────────────────────────────
         odom_topic = self.get_parameter('odom_topic').value
         path_topic = self.get_parameter('path_topic').value
+        overtake_path_topic = self.get_parameter('overtake_path_topic').value
+        overtake_active_topic = self.get_parameter('overtake_active_topic').value
         drive_topic = self.get_parameter('drive_topic').value
         marker_topic = self.get_parameter('marker_topic').value
         self.frame_id = self.get_parameter('frame_id').value
@@ -83,14 +88,19 @@ class AdaptivePurePursuitNode(Node):
 
         # ── State ────────────────────────────────────────────────────
         self.x = self.y = self.yaw = self.speed = 0.0
-        self.ref_path = None
+        self.ref_path = None        # 현재 활성 경로
+        self.normal_path = None     # /planning/path
+        self.overtake_path = None   # /planning/routed_path
+        self.overtake_active = False
         self.pid_integral = 0.0
         self.pid_prev_err = 0.0
         self.prev_time = None
 
         # ── Pub / Sub ────────────────────────────────────────────────
         self.create_subscription(Odometry, odom_topic, self._cb_odom, 10)
-        self.create_subscription(Path, path_topic, self._cb_path, 10)
+        self.create_subscription(Path, path_topic, self._cb_normal_path, 10)
+        self.create_subscription(Path, overtake_path_topic, self._cb_overtake_path, 10)
+        self.create_subscription(Bool, overtake_active_topic, self._cb_overtake_active, 10)
         self.drive_pub = self.create_publisher(AckermannDriveStamped, drive_topic, 10)
         self.marker_pub = self.create_publisher(MarkerArray, marker_topic, 10)
 
@@ -99,6 +109,7 @@ class AdaptivePurePursuitNode(Node):
         self.get_logger().info('adaptive_pure_pursuit_node started')
         self.get_logger().info(f'  L_d = {self.k_v}*v + {self.L_min}  clip [{self.L_min}, {self.L_max}]')
         self.get_logger().info(f'  speed range : {self.min_speed}~{self.max_speed} m/s')
+        self.get_logger().info(f'  overtake_path : {overtake_path_topic}')
 
     def _cb_odom(self, msg):
         self.x = msg.pose.pose.position.x
@@ -107,11 +118,27 @@ class AdaptivePurePursuitNode(Node):
         self.yaw = math.atan2(2 * q.w * q.z, 1 - 2 * q.z ** 2)
         self.speed = msg.twist.twist.linear.x
 
-    def _cb_path(self, msg):
-        self.ref_path = [
-            (p.pose.position.x, p.pose.position.y)
-            for p in msg.poses
-        ]
+    def _cb_normal_path(self, msg):
+        self.normal_path = [(p.pose.position.x, p.pose.position.y) for p in msg.poses]
+        if not self.overtake_active:
+            self.ref_path = self.normal_path
+
+    def _cb_overtake_path(self, msg):
+        self.overtake_path = [(p.pose.position.x, p.pose.position.y) for p in msg.poses]
+        if self.overtake_active:
+            self.ref_path = self.overtake_path
+
+    def _cb_overtake_active(self, msg):
+        prev = self.overtake_active
+        self.overtake_active = msg.data
+        if self.overtake_active and not prev:
+            self.get_logger().info('[AdaptivePP] 오버테이크 경로로 전환')
+            if self.overtake_path:
+                self.ref_path = self.overtake_path
+        elif not self.overtake_active and prev:
+            self.get_logger().info('[AdaptivePP] 일반 경로로 복귀')
+            if self.normal_path:
+                self.ref_path = self.normal_path
 
     def _control_loop(self):
         if self.ref_path is None or len(self.ref_path) < 2:

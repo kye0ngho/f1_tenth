@@ -41,7 +41,7 @@ class SpeedPlannerNode(Node):
         self.declare_parameter('v_min', 0.4)
         self.declare_parameter('v_max', 3.0)
         self.declare_parameter('smooth_window', 5)
-        self.declare_parameter('auto_plan_on_start', True)
+        self.declare_parameter('auto_plan_on_start', False)
 
         self.input_csv = self.get_parameter('input_csv').value
         self.output_csv = self.get_parameter('output_csv').value

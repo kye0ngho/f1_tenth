@@ -1,4 +1,5 @@
 import csv
+import math
 import os
 import time
 
@@ -70,7 +71,6 @@ class DataLoggerNode(Node):
         self.get_logger().info(f'  auto_start : {auto_start}')
 
     def _cb_odom(self, msg):
-        import math
         self.x = msg.pose.pose.position.x
         self.y = msg.pose.pose.position.y
         q = msg.pose.pose.orientation

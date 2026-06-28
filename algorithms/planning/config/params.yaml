@@ -14,6 +14,8 @@ lap_timer_node:
     trigger_radius: 0.5
     min_lap_distance: 2.0
     log_file: "/sim_ws/src/planning/waypoints/lap_times.txt"
+    start_x: .nan
+    start_y: .nan
 
 velocity_profile_node:
   ros__parameters:
@@ -126,6 +128,8 @@ overtake_planner_node:
     overtake_trigger_dist: 2.5
     overtake_clear_dist: 4.0
     lateral_offset: 0.6
+    approach_speed: 1.0
+    merge_waypoints: 15
     frame_id: "map"
 
 trajectory_evaluator_node:

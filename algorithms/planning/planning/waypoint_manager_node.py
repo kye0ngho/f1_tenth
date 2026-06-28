@@ -1,7 +1,7 @@
-import glob
-import os
-
 import csv
+import glob
+import math
+import os
 
 import rclpy
 from rclpy.node import Node
@@ -89,7 +89,6 @@ class WaypointManagerNode(Node):
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = self.frame_id
 
-        import math
         for x, y, yaw in waypoints:
             ps = PoseStamped()
             ps.header = msg.header

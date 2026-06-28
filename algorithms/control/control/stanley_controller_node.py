@@ -149,7 +149,7 @@ class StanleyControllerNode(Node):
 
         # Stanley 공식
         v = max(abs(self.speed), 0.01)
-        delta = psi_e + math.atan2(self.k * e, v + self.k_soft)
+        delta = psi_e + math.atan(self.k * e / (v + self.k_soft))
         delta = float(np.clip(delta, -self.max_steer, self.max_steer))
 
         # 속도 (전방 곡률 기반)
@@ -159,6 +159,7 @@ class StanleyControllerNode(Node):
         err = v_target - abs(self.speed)
         if dt > 0:
             self.pid_i += err * dt
+            self.pid_i = float(np.clip(self.pid_i, -self.max_speed, self.max_speed))
             d_err = (err - self.pid_prev_e) / dt
         else:
             d_err = 0.0

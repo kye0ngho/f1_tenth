@@ -153,8 +153,10 @@ class DebugMarkerNode(Node):
             m.id = mid; mid += 1
             m.type = Marker.TEXT_VIEW_FACING
             m.action = Marker.ADD
-            m.pose = self.odom.pose.pose
-            m.pose.position.z += 0.3
+            m.pose.position.x = self.odom.pose.pose.position.x
+            m.pose.position.y = self.odom.pose.pose.position.y
+            m.pose.position.z = self.odom.pose.pose.position.z + 0.3
+            m.pose.orientation = self.odom.pose.pose.orientation
             m.scale.z = 0.18
             brake_str = ' [BRAKE]' if self.braking else ''
             m.text = f'{self.mode}{brake_str}'

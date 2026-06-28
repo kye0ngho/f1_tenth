@@ -38,7 +38,7 @@ class EmergencyRecoveryNode(Node):
 
         self.declare_parameter('odom_topic', '/ego_racecar/odom')
         self.declare_parameter('drive_input_topic', '/control/drive')
-        self.declare_parameter('drive_output_topic', '/drive')
+        self.declare_parameter('drive_output_topic', '/emergency/drive')
         self.declare_parameter('state_topic', '/emergency_recovery/state')
         self.declare_parameter('active_topic', '/emergency_recovery/active')
 

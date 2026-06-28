@@ -49,7 +49,7 @@ class RaceLineOptimizerNode(Node):
         self.declare_parameter('min_speed', 0.4)
         self.declare_parameter('max_speed', 2.5)
         self.declare_parameter('speed_curvature_gain', 3.5)
-        self.declare_parameter('auto_optimize_on_start', True)
+        self.declare_parameter('auto_optimize_on_start', False)
 
         self.input_csv = self.get_parameter('input_csv').value
         self.output_csv = self.get_parameter('output_csv').value

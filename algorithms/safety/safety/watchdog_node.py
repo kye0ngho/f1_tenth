@@ -11,13 +11,13 @@ class WatchdogNode(Node):
     """
     토픽 헬스 모니터.
     감시 대상 토픽이 timeout 안에 메시지를 수신하지 못하면
-    /drive에 비상정지 커맨드를 발행하고 /watchdog/alert를 True로 발행.
+    /watchdog/alert (Bool=True)를 발행한다.
+    실제 estop 커맨드는 safety_brake_node가 이 신호를 수신해 처리한다.
     """
 
     def __init__(self):
         super().__init__('watchdog_node')
 
-        self.declare_parameter('drive_topic', '/drive')
         self.declare_parameter('alert_topic', '/watchdog/alert')
         self.declare_parameter('status_topic', '/watchdog/status')
         self.declare_parameter('check_rate', 10.0)
@@ -25,7 +25,6 @@ class WatchdogNode(Node):
         self.declare_parameter('path_timeout', 3.0)
         self.declare_parameter('drive_timeout', 1.0)
 
-        drive_topic = self.get_parameter('drive_topic').value
         alert_topic = self.get_parameter('alert_topic').value
         status_topic = self.get_parameter('status_topic').value
         check_rate = float(self.get_parameter('check_rate').value)
@@ -44,13 +43,13 @@ class WatchdogNode(Node):
         self.create_subscription(AckermannDriveStamped, '/control/drive',
                                  lambda m: self._touch('/control/drive'), 10)
 
-        self.drive_pub = self.create_publisher(AckermannDriveStamped, drive_topic, 10)
         self.alert_pub = self.create_publisher(Bool, alert_topic, 10)
         self.status_pub = self.create_publisher(String, status_topic, 10)
 
         self.create_timer(1.0 / check_rate, self._check)
 
         self.get_logger().info('watchdog_node started')
+        self.get_logger().info(f'  alert_topic : {alert_topic}')
         for t, to in self.watched.items():
             self.get_logger().info(f'  watching {t}  timeout={to}s')
 
@@ -71,7 +70,6 @@ class WatchdogNode(Node):
 
         if alerts:
             self.get_logger().warn(f'[WATCHDOG] 타임아웃: {alerts}')
-            self._publish_estop()
 
         s_msg = String()
         s_msg.data = 'OK' if not alerts else 'ALERT: ' + ' | '.join(alerts)
@@ -80,13 +78,6 @@ class WatchdogNode(Node):
         b_msg = Bool()
         b_msg.data = bool(alerts)
         self.alert_pub.publish(b_msg)
-
-    def _publish_estop(self):
-        msg = AckermannDriveStamped()
-        msg.header.stamp = self.get_clock().now().to_msg()
-        msg.drive.speed = 0.0
-        msg.drive.steering_angle = 0.0
-        self.drive_pub.publish(msg)
 
 
 def main(args=None):

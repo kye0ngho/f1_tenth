@@ -4,8 +4,8 @@ import math
 import rclpy
 from rclpy.node import Node
 
+from geometry_msgs.msg import Point, PoseStamped
 from nav_msgs.msg import Path
-from geometry_msgs.msg import PoseStamped
 from visualization_msgs.msg import Marker, MarkerArray
 
 
@@ -103,8 +103,6 @@ class WaypointPlannerNode(Node):
         line.color.r = 0.0
         line.color.g = 1.0
         line.color.b = 0.0
-
-        from geometry_msgs.msg import Point
 
         for x, y, speed in self.waypoints:
             p = Point()

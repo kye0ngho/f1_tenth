@@ -18,7 +18,7 @@ class PurePursuitNode(Node):
         # Topics
         self.declare_parameter('odom_topic', '/localization/odom')
         self.declare_parameter('path_topic', '/planning/path')
-        self.declare_parameter('sim_drive_topic', '/drive')
+        self.declare_parameter('sim_drive_topic', '/pure_pursuit/drive')
         self.declare_parameter('real_speed_topic', '/commands/motor/speed')
         self.declare_parameter('real_servo_topic', '/commands/servo/position')
 
@@ -224,6 +224,7 @@ class PurePursuitNode(Node):
 
         if dt > 0.0:
             self.integral_error += error * dt
+            self.integral_error = self.clamp(self.integral_error, -self.max_speed, self.max_speed)
             derivative = (error - self.prev_error) / dt
         else:
             derivative = 0.0

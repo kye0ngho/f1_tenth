@@ -63,6 +63,7 @@ class OvertakePlannerNode(Node):
         self.car_x = self.car_y = self.car_yaw = 0.0
         self.nearest_dist = float('inf')
         self.ref_path = None
+        self._merge_ticks = 0
 
         self.create_subscription(Path, path_topic, self._cb_path, 10)
         self.create_subscription(Odometry, odom_topic, self._cb_odom, 10)
@@ -111,11 +112,14 @@ class OvertakePlannerNode(Node):
         elif self.state == 'OVERTAKE':
             if self.nearest_dist > self.clear_dist:
                 self.state = 'MERGE'
+                self._merge_ticks = self.merge_n
                 self.get_logger().info('[Overtake] MERGE: 원래 경로 복귀')
 
         elif self.state == 'MERGE':
-            # 일정 시간 후 NORMAL 복귀 (simple: timer-based)
-            self.state = 'NORMAL'
+            self._merge_ticks -= 1
+            if self._merge_ticks <= 0:
+                self.state = 'NORMAL'
+                self.get_logger().info('[Overtake] NORMAL: 복귀 완료')
 
         if self.ref_path is None:
             return
