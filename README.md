@@ -4,6 +4,12 @@ f1tenth_gym_ros를 ROS2 Humble로 포팅한 버전
 
 ## 업데이트 로그
 
+### 2026-07-05
+- `centerline_extractor_node` 구현 — 점유격자 지도에서 트랙 중심선 waypoint 자동 추출 (지도만 있으면 주행 없이 waypoints.csv 생성)
+- levine 트랙 실제 waypoint 279개 생성 (64.4m 루프) — 기존 데모용 사각형 대체
+- pure_pursuit 주행 검증: 추출된 중심선을 따라 벽 거리 0.7~1.0m 유지하며 정상 주행 확인
+- gap_follow 조향 버그 수정 (최장거리 동률 시 벽 방향으로 쏠리던 문제)
+
 ### 2026-07-04
 - 로컬라이제이션 백엔드 확장: `localization_mode:=passthrough|particle_filter|slam|amcl` 4가지 선택 지원
 - `amcl_bridge_node` 추가 — nav2_amcl 출력을 `/localization/odom`으로 통일
