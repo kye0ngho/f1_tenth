@@ -81,6 +81,11 @@ class VelocityProfileNode(Node):
                 yaw = float(row.get('yaw', 0.0))
                 speed = float(row.get('speed', self.max_speed))
                 waypoints.append((x, y, yaw, speed))
+        # 루프 클로저 CSV는 첫/끝 포인트가 중복 — 순환 곡률 계산과 충돌하므로 제거
+        if len(waypoints) > 1 and \
+                math.hypot(waypoints[0][0] - waypoints[-1][0],
+                           waypoints[0][1] - waypoints[-1][1]) < 1e-6:
+            waypoints = waypoints[:-1]
         if len(waypoints) < 3:
             raise RuntimeError('웨이포인트가 3개 미만입니다.')
         return waypoints

@@ -72,8 +72,10 @@ ENTRYPOINT ["/bin/bash"]
 # 추가 패키지
 RUN apt-get update && apt-get install -y \
     ros-humble-slam-toolbox \
+    ros-humble-nav2-amcl \
     ros-humble-nav2-map-server \
     ros-humble-nav2-lifecycle-manager \
+    ros-humble-pointcloud-to-laserscan \
     ros-humble-ackermann-msgs \
     ros-humble-teleop-twist-keyboard \
     ros-humble-joint-state-publisher \

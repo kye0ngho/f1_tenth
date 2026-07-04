@@ -190,7 +190,8 @@ CSV 컬럼: `x, y, yaw, speed`
 | 노드 | 패키지 | 상태 | 설명 |
 |------|--------|------|------|
 | localization_node | localization | 완성 | 시뮬 odom 패스스루 |
-| particle_filter_node | localization | 완성 | MCL — likelihood field. use_particle_filter:=true로 활성화 |
+| particle_filter_node | localization | 완성 | MCL — likelihood field. localization_mode:=particle_filter로 활성화 |
+| amcl_bridge_node | localization | 완성 | /amcl_pose + raw odom twist → /localization/odom 통일. localization_mode:=amcl |
 | waypoint_recorder_node | planning | 완성 | 텔레옵 경로 기록, 루프 클로저, 속도 스무딩, 서비스 제어 |
 | waypoint_planner_node | planning | 완성 | CSV → /planning/path + MarkerArray (2Hz) |
 | velocity_profile_node | planning | 완성 | 곡률 기반 속도 최적화 → CSV 덮어쓰기 |
@@ -232,7 +233,9 @@ CSV 컬럼: `x, y, yaw, speed`
 - **Disparity Extender 사용**: `behavior_selector`의 `gap_drive_topic` → `/disparity_ext/drive`
 - **오버테이크 활성화**: `pure_pursuit`의 `path_topic` → `/planning/routed_path`
 - **레이싱 라인 적용**: `waypoint_planner`의 `waypoint_csv` → `/sim_ws/src/planning/waypoints/race_line.csv`
-- **실차 배포**: `drive_mode:=real` + `use_particle_filter:=true` + `vehicle_interface_node` 활성화
+- **실차 배포**: `drive_mode:=real` + `localization_mode:=particle_filter|amcl` + `vehicle_interface_node` 활성화
+- **로컬라이제이션 백엔드**: `localization_mode:=passthrough|particle_filter|slam|amcl` (기본 passthrough). slam은 시뮬에서 `/slam_map` 발행 (시뮬 `/map`과 분리), amcl 완전 동작은 odom TF가 있는 실차 전용
+- **웨이포인트 속도 파이프라인**: CSV speed → Path `pose.position.z` 인코딩 → `pure_pursuit`의 `use_path_speed:=true`(기본)로 소비. z≈0이면 target_speed 폴백
 - **전처리 scan 사용**: `gap_follow_node` / `safety_brake_node`의 `scan_topic` → `/scan_processed`
 - **섹터 정의**: `/sim_ws/src/planning/waypoints/sectors.csv` (x,y,radius,name 컬럼)
 - **스플라인 경로 사용**: 컨트롤러의 `path_topic` → `/planning/smooth_path`

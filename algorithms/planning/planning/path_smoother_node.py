@@ -60,13 +60,14 @@ class PathSmootherNode(Node):
 
         xs = np.array([p.pose.position.x for p in poses])
         ys = np.array([p.pose.position.y for p in poses])
+        zs = np.array([p.pose.position.z for p in poses])  # z = 목표 속도 관례
 
         # 중복 포인트 제거
         keep = [0]
         for i in range(1, len(xs)):
             if math.hypot(xs[i] - xs[keep[-1]], ys[i] - ys[keep[-1]]) >= self.min_seg:
                 keep.append(i)
-        xs, ys = xs[keep], ys[keep]
+        xs, ys, zs = xs[keep], ys[keep], zs[keep]
 
         if len(xs) < 4:
             return msg
@@ -97,18 +98,21 @@ class PathSmootherNode(Node):
         dxds = cs_x(s_new, 1)
         dyds = cs_y(s_new, 1)
         yaws = np.arctan2(dyds, dxds)
+        # 속도는 선형 보간으로 충분 (스플라인 오버슈트로 음수 속도 방지)
+        zs_c = np.append(zs, zs[0])
+        zs_s = np.interp(s_new, s_c, zs_c)
 
         # Path 메시지 생성
         out = Path()
         out.header.stamp = self.get_clock().now().to_msg()
         out.header.frame_id = self.frame_id
 
-        for x, y, yaw in zip(xs_s, ys_s, yaws):
+        for x, y, yaw, v in zip(xs_s, ys_s, yaws, zs_s):
             ps = PoseStamped()
             ps.header = out.header
             ps.pose.position.x = float(x)
             ps.pose.position.y = float(y)
-            ps.pose.position.z = 0.0
+            ps.pose.position.z = float(v)
             ps.pose.orientation.z = math.sin(yaw / 2)
             ps.pose.orientation.w = math.cos(yaw / 2)
             out.poses.append(ps)

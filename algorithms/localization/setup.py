@@ -25,6 +25,10 @@ setup(
             os.path.join('share', package_name, 'config'),
             glob('config/*.yaml')
         ),
+        (
+            os.path.join('share', package_name, 'maps'),
+            glob('maps/*')
+        ),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -39,6 +43,7 @@ setup(
             'particle_filter_node = localization.particle_filter_node:main',
             'map_server_node = localization.map_server_node:main',
             'imu_odometry_node = localization.imu_odometry_node:main',
+            'amcl_bridge_node = localization.amcl_bridge_node:main',
         ],
     },
 )

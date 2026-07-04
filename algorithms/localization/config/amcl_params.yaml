@@ -1,0 +1,59 @@
+amcl:
+  ros__parameters:
+    # --- Frames ---
+    global_frame_id: map
+    odom_frame_id: odom
+    base_frame_id: base_link     # 시뮬 프레임은 ego_racecar/base_link (실차: base_link)
+                                 # 주의: 시뮬은 odom 프레임 TF가 없어 AMCL 완전 동작은 실차 전용
+    scan_topic: /scan
+    map_topic: /map
+
+    # --- Particle filter ---
+    min_particles: 500
+    max_particles: 2000
+    pf_err: 0.05
+    pf_z: 0.99
+    resample_interval: 1
+
+    # --- Motion model (differential drive) ---
+    robot_model_type: nav2_amcl::DifferentialMotionModel
+    alpha1: 0.2     # 회전 노이즈 ← 회전
+    alpha2: 0.2     # 회전 노이즈 ← 직진
+    alpha3: 0.2     # 직진 노이즈 ← 직진
+    alpha4: 0.2     # 직진 노이즈 ← 회전
+    alpha5: 0.2     # 횡방향 노이즈
+
+    # --- Laser model ---
+    laser_model_type: likelihood_field
+    max_beams: 60
+    laser_max_range: 25.0
+    laser_min_range: 0.45
+    sigma_hit: 0.2
+    z_hit: 0.5
+    z_rand: 0.5
+    z_max: 0.05
+    z_short: 0.05
+    lambda_short: 0.1
+    laser_likelihood_max_dist: 2.0
+    do_beamskip: false
+
+    # --- Recovery ---
+    recovery_alpha_slow: 0.001
+    recovery_alpha_fast: 0.1
+
+    # --- Update thresholds ---
+    update_min_d: 0.25     # m — 이 이상 이동 시 업데이트
+    update_min_a: 0.2      # rad — 이 이상 회전 시 업데이트
+    transform_tolerance: 0.5
+    tf_broadcast: true
+    save_pose_rate: 0.5
+
+    # --- Initial pose ---
+    # RViz에서 '2D Pose Estimate' 또는 /initialpose 토픽으로 설정
+    set_initial_pose: false
+    always_reset_initial_pose: false
+    initial_pose:
+      x: 0.0
+      y: 0.0
+      z: 0.0
+      yaw: 0.0

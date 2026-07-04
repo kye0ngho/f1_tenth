@@ -1,20 +1,28 @@
+import os
+
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
-from launch.conditions import IfCondition, UnlessCondition
-from launch.substitutions import LaunchConfiguration
+from launch.conditions import IfCondition, LaunchConfigurationEquals
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 
 
 def generate_launch_description():
     drive_mode = LaunchConfiguration('drive_mode')
     waypoint_csv = LaunchConfiguration('waypoint_csv')
-    use_particle_filter = LaunchConfiguration('use_particle_filter')
+    localization_mode = LaunchConfiguration('localization_mode')
+
+    loc_pkg = get_package_share_directory('localization')
+    loc_params = os.path.join(loc_pkg, 'config', 'params.yaml')
+    slam_params = os.path.join(loc_pkg, 'config', 'slam_toolbox_params.yaml')
+    amcl_params = os.path.join(loc_pkg, 'config', 'amcl_params.yaml')
 
     return LaunchDescription([
         DeclareLaunchArgument(
             'drive_mode',
             default_value='sim',
-            description='Drive output mode: sim or real'
+            description='Drive output mode: sim | real'
         ),
 
         DeclareLaunchArgument(
@@ -24,42 +32,40 @@ def generate_launch_description():
         ),
 
         DeclareLaunchArgument(
-            'use_particle_filter',
-            default_value='false',
-            description='Use particle filter localization (true) or odom passthrough (false)'
+            'localization_mode',
+            default_value='passthrough',
+            description=(
+                'Localization backend: '
+                'passthrough(sim) | particle_filter | slam | amcl(real)'
+            )
         ),
 
-        # ── Map Server (particle filter 필수) ────────────────────────
+        # ── 3D→2D: 실차 전용 ─────────────────────────────────────────
+        # VLP-16 기본: cloud_in = /velodyne_points  (Ouster면 /ouster/points)
         Node(
-            package='localization',
-            executable='map_server_node',
-            name='map_server_node',
+            package='pointcloud_to_laserscan',
+            executable='pointcloud_to_laserscan_node',
+            name='pointcloud_to_laserscan',
             output='screen',
-            parameters=[{
-                'map_yaml': '/sim_ws/src/localization/maps/map.yaml',
-                'map_topic': '/map',
-                'frame_id': 'map',
-            }]
+            remappings=[
+                ('cloud_in', '/velodyne_points'),
+                ('scan', '/scan'),
+            ],
+            parameters=[loc_params],
+            condition=LaunchConfigurationEquals('drive_mode', 'real')
         ),
 
-        # ── IMU 오도메트리 융합 (실차 권장) ──────────────────────────
+        # ── IMU 오도메트리 융합 (실차 전용) ──────────────────────────
         Node(
             package='localization',
             executable='imu_odometry_node',
             name='imu_odometry_node',
             output='screen',
-            parameters=[{
-                'odom_topic': '/ego_racecar/odom',
-                'imu_topic': '/imu/data',
-                'output_topic': '/localization/odom_fused',
-                'alpha': 0.5,
-            }]
+            parameters=[loc_params],
+            condition=LaunchConfigurationEquals('drive_mode', 'real')
         ),
 
-        # ── Localization ──────────────────────────────────────────────
-        # 시뮬: use_particle_filter:=false → localization_node (odom passthrough)
-        # 실차: use_particle_filter:=true  → particle_filter_node (LiDAR+map MCL)
-        # use_particle_filter:=false → odom 패스스루
+        # ── Localization: passthrough ─────────────────────────────────
         Node(
             package='localization',
             executable='localization_node',
@@ -70,10 +76,22 @@ def generate_launch_description():
                 'output_odom_topic': '/localization/odom',
                 'output_pose_topic': '/localization/pose',
             }],
-            condition=UnlessCondition(use_particle_filter)
+            condition=LaunchConfigurationEquals('localization_mode', 'passthrough')
         ),
 
-        # use_particle_filter:=true → MCL (LiDAR+map)
+        # ── Localization: particle_filter (커스텀 MCL) ────────────────
+        Node(
+            package='localization',
+            executable='map_server_node',
+            name='map_server_node',
+            output='screen',
+            parameters=[{
+                'map_yaml': '/sim_ws/src/localization/maps/map.yaml',
+                'map_topic': '/map',
+                'frame_id': 'map',
+            }],
+            condition=LaunchConfigurationEquals('localization_mode', 'particle_filter')
+        ),
         Node(
             package='localization',
             executable='particle_filter_node',
@@ -100,7 +118,90 @@ def generate_launch_description():
                 'initial_spread_xy': 0.5,
                 'initial_spread_theta': 0.3,
             }],
-            condition=IfCondition(use_particle_filter)
+            condition=LaunchConfigurationEquals('localization_mode', 'particle_filter')
+        ),
+
+        # ── Localization: slam (SLAM Toolbox 온라인 매핑) ─────────────
+        # 지도 저장: ros2 service call /slam_toolbox/save_map ...
+        # 시뮬: odom 프레임이 없어 ground-truth TF(map→ego_racecar/base_link)를
+        #        odom 대용으로 사용, 지도는 /slam_map으로 분리(시뮬 /map과 충돌 방지)
+        Node(
+            package='slam_toolbox',
+            executable='async_slam_toolbox_node',
+            name='slam_toolbox',
+            output='screen',
+            parameters=[slam_params, {
+                'base_frame': 'ego_racecar/base_link',
+                'odom_frame': 'map',
+                'map_frame': 'slam_map',
+            }],
+            remappings=[('/map', '/slam_map')],
+            condition=IfCondition(PythonExpression([
+                "'", localization_mode, "' == 'slam' and '",
+                drive_mode, "' == 'sim'"
+            ]))
+        ),
+        # 실차: VESC odom TF(odom→base_link) 전제
+        Node(
+            package='slam_toolbox',
+            executable='async_slam_toolbox_node',
+            name='slam_toolbox',
+            output='screen',
+            parameters=[slam_params],
+            condition=IfCondition(PythonExpression([
+                "'", localization_mode, "' == 'slam' and '",
+                drive_mode, "' == 'real'"
+            ]))
+        ),
+
+        # ── Localization: amcl (저장된 지도 + nav2_amcl) ──────────────
+        # 전제: SLAM으로 저장한 map.yaml 존재, RViz에서 initial pose 설정
+        Node(
+            package='localization',
+            executable='map_server_node',
+            name='map_server_node',
+            output='screen',
+            parameters=[{
+                'map_yaml': '/sim_ws/src/localization/maps/map.yaml',
+                'map_topic': '/map',
+                'frame_id': 'map',
+            }],
+            condition=LaunchConfigurationEquals('localization_mode', 'amcl')
+        ),
+        Node(
+            package='nav2_amcl',
+            executable='amcl',
+            name='amcl',
+            output='screen',
+            parameters=[amcl_params],
+            condition=LaunchConfigurationEquals('localization_mode', 'amcl')
+        ),
+        # nav2_amcl은 lifecycle 노드 — configure/activate 자동화 필수
+        Node(
+            package='nav2_lifecycle_manager',
+            executable='lifecycle_manager',
+            name='lifecycle_manager_amcl',
+            output='screen',
+            parameters=[{
+                'autostart': True,
+                'node_names': ['amcl'],
+            }],
+            condition=LaunchConfigurationEquals('localization_mode', 'amcl')
+        ),
+        Node(
+            package='localization',
+            executable='amcl_bridge_node',
+            name='amcl_bridge_node',
+            output='screen',
+            parameters=[{
+                'amcl_pose_topic': '/amcl_pose',
+                'raw_odom_topic': '/ego_racecar/odom',
+                'output_odom_topic': '/localization/odom',
+                'output_pose_topic': '/localization/pose',
+                'map_frame': 'map',
+                'base_frame': 'base_link',
+            }],
+            condition=LaunchConfigurationEquals('localization_mode', 'amcl')
         ),
 
         # ── Path Smoother (컨트롤러에 부드러운 경로 제공) ────────────

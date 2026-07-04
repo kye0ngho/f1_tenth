@@ -32,6 +32,8 @@ class PurePursuitNode(Node):
         self.declare_parameter('min_speed', 0.4)
         self.declare_parameter('max_speed', 2.0)
         self.declare_parameter('corner_slowdown_gain', 0.5)
+        # Path pose.position.z에 실린 웨이포인트 속도 사용 (z≈0이면 자동 폴백)
+        self.declare_parameter('use_path_speed', True)
 
         # PID for speed tracking
         self.declare_parameter('kp', 1.0)
@@ -65,6 +67,7 @@ class PurePursuitNode(Node):
         self.min_speed = float(self.get_parameter('min_speed').value)
         self.max_speed = float(self.get_parameter('max_speed').value)
         self.corner_slowdown_gain = float(self.get_parameter('corner_slowdown_gain').value)
+        self.use_path_speed = bool(self.get_parameter('use_path_speed').value)
 
         self.kp = float(self.get_parameter('kp').value)
         self.ki = float(self.get_parameter('ki').value)
@@ -130,6 +133,7 @@ class PurePursuitNode(Node):
         self.get_logger().info(f'sim_drive_topic  : {self.sim_drive_topic}')
         self.get_logger().info(f'real_speed_topic : {self.real_speed_topic}')
         self.get_logger().info(f'real_servo_topic : {self.real_servo_topic}')
+        self.get_logger().info(f'use_path_speed   : {self.use_path_speed}')
 
         if self.drive_mode not in ['sim', 'real']:
             raise RuntimeError("drive_mode must be 'sim' or 'real'")
@@ -187,7 +191,7 @@ class PurePursuitNode(Node):
             dist = math.hypot(dx, dy)
 
             if x_car > 0.0 and dist >= self.lookahead_distance:
-                return x_car, y_car, dist
+                return x_car, y_car, dist, pose_stamped.pose.position.z
 
         return None
 
@@ -204,15 +208,19 @@ class PurePursuitNode(Node):
             self.max_steering_angle
         )
 
-    def compute_pid_speed(self, steering):
+    def compute_pid_speed(self, steering, path_speed=0.0):
         now = self.get_clock().now().nanoseconds * 1e-9
 
         current_speed = 0.0
         if self.current_odom is not None:
             current_speed = self.current_odom.twist.twist.linear.x
 
-        steer_ratio = abs(steering) / max(self.max_steering_angle, 1e-6)
-        desired_speed = self.target_speed * (1.0 - self.corner_slowdown_gain * steer_ratio)
+        if self.use_path_speed and path_speed > 0.05:
+            # 웨이포인트 속도는 이미 곡률 기반으로 계산됨 — 이중 감속 방지
+            desired_speed = path_speed
+        else:
+            steer_ratio = abs(steering) / max(self.max_steering_angle, 1e-6)
+            desired_speed = self.target_speed * (1.0 - self.corner_slowdown_gain * steer_ratio)
         desired_speed = self.clamp(desired_speed, self.min_speed, self.max_speed)
 
         error = desired_speed - current_speed
@@ -294,10 +302,10 @@ class PurePursuitNode(Node):
             self.publish_stop()
             return
 
-        x_car, y_car, lookahead_dist = lookahead
+        x_car, y_car, lookahead_dist, path_speed = lookahead
 
         steering = self.compute_steering(x_car, y_car, lookahead_dist)
-        speed = self.compute_pid_speed(steering)
+        speed = self.compute_pid_speed(steering, path_speed)
 
         self.publish_drive(speed, steering)
 

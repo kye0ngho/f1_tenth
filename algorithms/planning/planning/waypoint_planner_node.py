@@ -71,7 +71,8 @@ class WaypointPlannerNode(Node):
             pose.header = path_msg.header
             pose.pose.position.x = x
             pose.pose.position.y = y
-            pose.pose.position.z = 0.0
+            # 관례: z에 목표 속도 인코딩 — 컨트롤러가 use_path_speed로 소비
+            pose.pose.position.z = speed
 
             if i < len(self.waypoints) - 1:
                 nx, ny, _ = self.waypoints[i + 1]

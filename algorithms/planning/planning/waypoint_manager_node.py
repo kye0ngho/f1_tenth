@@ -83,18 +83,20 @@ class WaypointManagerNode(Node):
                     float(row.get('x', 0)),
                     float(row.get('y', 0)),
                     float(row.get('yaw', 0)),
+                    float(row.get('speed', 0)),
                 ))
 
         msg = Path()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = self.frame_id
 
-        for x, y, yaw in waypoints:
+        for x, y, yaw, speed in waypoints:
             ps = PoseStamped()
             ps.header = msg.header
             ps.pose.position.x = x
             ps.pose.position.y = y
-            ps.pose.position.z = 0.0
+            # 관례: z에 목표 속도 인코딩 — 컨트롤러가 use_path_speed로 소비
+            ps.pose.position.z = speed
             ps.pose.orientation.z = math.sin(yaw / 2)
             ps.pose.orientation.w = math.cos(yaw / 2)
             msg.poses.append(ps)

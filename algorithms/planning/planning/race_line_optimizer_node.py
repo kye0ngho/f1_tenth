@@ -95,7 +95,11 @@ class RaceLineOptimizerNode(Node):
             reader = csv.DictReader(f)
             for row in reader:
                 pts.append([float(row['x']), float(row['y'])])
-        return np.array(pts)
+        pts = np.array(pts)
+        # 루프 클로저 CSV는 첫/끝 포인트가 중복 — 순환 인덱싱과 충돌하므로 제거
+        if len(pts) > 1 and np.linalg.norm(pts[0] - pts[-1]) < 1e-6:
+            pts = pts[:-1]
+        return pts
 
     def _run_optimization(self):
         path = self._load_csv()
@@ -112,6 +116,7 @@ class RaceLineOptimizerNode(Node):
     def _optimize(self, path: np.ndarray) -> np.ndarray:
         n = len(path)
         pts = path.copy()
+        orig = path.copy()  # 트랙 폭 제약의 기준: 녹화된 중심선
 
         for iteration in range(self.max_iter):
             new_pts = pts.copy()
@@ -134,13 +139,17 @@ class RaceLineOptimizerNode(Node):
 
                 # 이동 벡터를 법선 방향으로 투영
                 delta = target - curr
-                proj = float(np.dot(delta, normal))
+                proj = float(np.dot(delta, normal)) * self.lr
+                candidate = curr + proj * normal
 
-                # 트랙 폭 제약
-                proj = float(np.clip(proj * self.lr, -self.half_width, self.half_width))
-                shift = proj * normal
+                # 트랙 폭 제약: 원본 중심선으로부터 누적 이탈이
+                # half_track_width를 넘으면 경계로 되돌림
+                offset = candidate - orig[i]
+                off_dist = float(np.linalg.norm(offset))
+                if off_dist > self.half_width:
+                    candidate = orig[i] + offset * (self.half_width / off_dist)
 
-                new_pts[i] = curr + shift
+                new_pts[i] = candidate
                 total_shift += abs(proj)
 
             pts = new_pts

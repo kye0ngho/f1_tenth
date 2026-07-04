@@ -94,8 +94,10 @@ class GymBridge(Node):
         scan_fov = self.get_parameter('scan_fov').value
         scan_beams = self.get_parameter('scan_beams').value
         self.angle_min = -scan_fov / 2.
-        self.angle_max = scan_fov / 2.
         self.angle_inc = scan_fov / scan_beams
+        # angle_max를 실제 마지막 빔 각도로 — (max-min)/inc+1 == beams 가 되어야
+        # slam_toolbox 등 소비자가 판수 불일치로 스캔을 버리지 않는다
+        self.angle_max = self.angle_min + self.angle_inc * (scan_beams - 1)
         self.ego_namespace = self.get_parameter('ego_namespace').value
         ego_odom_topic = self.ego_namespace + '/' + self.get_parameter('ego_odom_topic').value
         self.scan_distance_to_base_link = self.get_parameter('scan_distance_to_base_link').value
