@@ -2,6 +2,14 @@
 
 f1tenth_gym_ros를 ROS2 Humble로 포팅한 버전
 
+## 업데이트 로그
+
+### 2026-07-04
+- 로컬라이제이션 백엔드 확장: `localization_mode:=passthrough|particle_filter|slam|amcl` 4가지 선택 지원
+- `amcl_bridge_node` 추가 — nav2_amcl 출력을 `/localization/odom`으로 통일
+- 웨이포인트 속도(CSV) 파이프라인을 pure_pursuit까지 연결 (전에는 계산만 되고 실제 주행엔 반영 안 되던 문제 수정)
+- 시뮬 SLAM 매핑 → 지도 저장까지 컨테이너에서 검증 완료
+
 ## 사전 요구사항 설치
 
 ### 1. Docker
