@@ -151,14 +151,14 @@ class GapFollowNode(Node):
 
     def _best_point_in_gap(self, ranges, gap):
         start, end = gap
-        # gap 내에서 가장 먼 포인트
-        best_i = start
-        best_r = ranges[start]
-        for i in range(start, end + 1):
-            if ranges[i] > best_r:
-                best_r = ranges[i]
-                best_i = i
-        return best_i
+        # max_range 클리핑으로 최장거리 동률이 넓게 깔리므로
+        # 첫 인덱스(한쪽 벽 방향)가 아닌 동률 구간의 중앙을 선택
+        best_r = max(ranges[start:end + 1])
+        tie_idxs = [
+            i for i in range(start, end + 1)
+            if ranges[i] >= best_r - 1e-6
+        ]
+        return tie_idxs[len(tie_idxs) // 2]
 
     # ------------------------------------------------------------------ #
     # Control

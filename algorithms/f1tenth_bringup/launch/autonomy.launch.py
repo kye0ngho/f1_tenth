@@ -621,4 +621,21 @@ def generate_launch_description():
                 'auto_optimize_on_start': False,
             }]
         ),
+
+        # ── Centerline Extractor (지도 → waypoint 자동 생성) ──────────
+        # 사용: ros2 service call /centerline_extractor_node/extract std_srvs/srv/Trigger
+        Node(
+            package='planning',
+            executable='centerline_extractor_node',
+            name='centerline_extractor_node',
+            output='screen',
+            parameters=[{
+                'map_yaml': '/sim_ws/src/localization/maps/map.yaml',
+                'output_csv': '/sim_ws/src/planning/waypoints/waypoints.csv',
+                'waypoint_spacing': 0.25,
+                'seed_x': 0.0,
+                'seed_y': 0.0,
+                'auto_extract_on_start': False,
+            }]
+        ),
     ])

@@ -53,6 +53,7 @@ setup(
             'trajectory_evaluator_node = planning.trajectory_evaluator_node:main',
             'path_smoother_node = planning.path_smoother_node:main',
             'speed_planner_node = planning.speed_planner_node:main',
+            'centerline_extractor_node = planning.centerline_extractor_node:main',
         ],
     },
 )
