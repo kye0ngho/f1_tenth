@@ -4,6 +4,11 @@ f1tenth_gym_ros를 ROS2 Humble로 포팅한 버전
 
 ## 업데이트 로그
 
+### 2026-07-06
+Slam Toolbox이용 매핑 
+<img width="911" height="301" alt="image" src="https://github.com/user-attachments/assets/5f0bd115-62af-46ae-b640-4de3de4c0bea" />
+왼쪽 GT , 오른쪽 매핑
+
 ### 2026-07-05
 - `centerline_extractor_node` 구현 — 점유격자 지도에서 트랙 중심선 waypoint 자동 추출 (지도만 있으면 주행 없이 waypoints.csv 생성)
 - levine 트랙 실제 waypoint 279개 생성 (64.4m 루프) — 기존 데모용 사각형 대체
