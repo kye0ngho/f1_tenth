@@ -1,8 +1,10 @@
+
 # F1Tenth ROS2 Humble
 
 f1tenth_gym_ros를 ROS2 Humble로 포팅한 버전
 
 ## 업데이트 로그
+[스크린캐스트 2026-07-07 13-57-41.webm](https://github.com/user-attachments/assets/0b639520-4f7c-41d2-9322-77bbfdc186a2)
 
 ### 2026-07-06
 Slam Toolbox이용 매핑 
