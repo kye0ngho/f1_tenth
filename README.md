@@ -4,6 +4,9 @@
 f1tenth_gym_ros를 ROS2 Humble로 포팅한 버전
 
 ## 업데이트 로그
+
+[스크린캐스트 2026-07-07 14-19-45.webm](https://github.com/user-attachments/assets/45663c64-6c07-4f88-9496-fb6078f1ffd5)
+
 [스크린캐스트 2026-07-07 14-02-26.webm](https://github.com/user-attachments/assets/b9fb5079-82ec-4758-93c6-cbd7d4e9f304)
 
 ### 2026-07-06
