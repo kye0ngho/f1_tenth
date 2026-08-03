@@ -64,22 +64,31 @@ overlay               # source install/setup.bash
 ros2 launch f1tenth_stack bringup_launch.py
 ```
 
-## 이미지를 그대로 옮기는 방법 (재빌드 없이)
+## 이미지를 그대로 옮기는 방법 (재빌드 없이, 권장)
 
-재빌드가 수 시간 걸리므로, 가능하면 이미지를 통째로 옮기는 편이 빠릅니다.
+재빌드는 수 시간 걸리고 업스트림 변동에 취약합니다. 빌드 완료된 이미지가 GHCR에 올라가 있습니다.
 
-**GHCR 사용:**
+```
+ghcr.io/kimz1xq/f1tenth:latest
+ghcr.io/kimz1xq/f1tenth:jetpack-r36.3
+digest: sha256:504244173e0628df75dacf3d69bd4b56fe65d57f013156bfb1aa6c44f058b34e
+```
 
 ```bash
-# 보내는 쪽 (classic PAT + write:packages 필요)
-echo $CR_PAT | docker login ghcr.io -u <USER> --password-stdin
-docker tag misys:f1tenth ghcr.io/kimz1xq/f1tenth:latest
-docker push ghcr.io/kimz1xq/f1tenth:latest
-
 # 받는 쪽 (Jetson)
 docker pull ghcr.io/kimz1xq/f1tenth:latest
 docker tag ghcr.io/kimz1xq/f1tenth:latest misys:f1tenth
+./run.sh
 ```
+
+패키지가 private이면 먼저 로그인이 필요합니다:
+
+```bash
+echo <PAT> | docker login ghcr.io -u <USER> --password-stdin   # read:packages 필요
+```
+
+이미지를 다시 올릴 때는 `write:packages` scope가 있는 **classic PAT**이 필요합니다.
+fine-grained 토큰(`github_pat_...`)은 GHCR에서 동작하지 않습니다.
 
 **외장 디스크/네트워크로 직접:**
 
