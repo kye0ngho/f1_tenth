@@ -54,6 +54,12 @@ RUN python3 -m pip install --no-cache-dir \
     future \
     transforms3d
 
+# cvxpy/osqp: required by algorithms/f1tenth_kkh's mpcc_node and
+# lab8_mpc_node (QP-based MPC controllers).
+RUN python3 -m pip install --no-cache-dir \
+    cvxpy==1.3.2 \
+    osqp==0.6.3
+
 RUN git clone https://github.com/f1tenth/f1tenth_gym
 RUN cd f1tenth_gym && \
     python3 -m pip install --no-cache-dir -e . --no-deps

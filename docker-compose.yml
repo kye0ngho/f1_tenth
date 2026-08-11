@@ -25,8 +25,9 @@ services:
   sim:
     image: f1tenth_gym_ros
     build: ./
-    volumes: 
+    volumes:
       - .:/sim_ws/src/f1tenth_gym_ros
+      - ./algorithms/f1tenth_kkh:/sim_ws/src/f1tenth_kkh
     environment:
       - DISPLAY=novnc:0.0
     networks:
