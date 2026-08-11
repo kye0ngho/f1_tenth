@@ -54,7 +54,7 @@ source install/setup.bash
 cd /sim_ws
 source /opt/ros/humble/setup.bash
 colcon build --symlink-install --packages-select \
-  f1tenth_gym_ros localization planning control vehicle_interface f1tenth_bringup
+  f1tenth_gym_ros localization planning control f1tenth_kkh vehicle_interface f1tenth_bringup
 source install/setup.bash
 ```
 

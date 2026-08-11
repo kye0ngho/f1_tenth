@@ -18,12 +18,19 @@ def load_xy(csv_path, x_name='x_m', y_name='y_m'):
     ])
 
 
+def parse_trajectory_arg(value):
+    label, color, csv_path = value.split(':', 2)
+    return label, color, csv_path
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--map-yaml', required=True)
     parser.add_argument('--raceline', required=True)
-    parser.add_argument('--pure-pursuit', required=True)
-    parser.add_argument('--mpc', required=True)
+    parser.add_argument(
+        '--trajectory', action='append', required=True,
+        type=parse_trajectory_arg,
+        help='LABEL:COLOR:CSV_PATH, repeatable (one per controller run)')
     parser.add_argument('--output', required=True)
     args = parser.parse_args()
 
@@ -46,19 +53,15 @@ def main():
     )
 
     raceline = load_xy(args.raceline)
-    pure_pursuit = load_xy(args.pure_pursuit, 'x_m', 'y_m')
-    mpc = load_xy(args.mpc, 'x_m', 'y_m')
 
     figure, axis = plt.subplots(figsize=(8, 7), constrained_layout=True)
     axis.imshow(image, cmap='gray', origin='upper', extent=extent)
     axis.plot(raceline[:, 0], raceline[:, 1], color='#19b34a', linewidth=2.0,
               label='Optimized safe raceline')
-    axis.plot(pure_pursuit[::30, 0], pure_pursuit[::30, 1],
-              color='#2474d2', linewidth=1.3, alpha=0.9,
-              label='Pure Pursuit')
-    axis.plot(mpc[::30, 0], mpc[::30, 1],
-              color='#f28e2b', linewidth=1.3, alpha=0.9,
-              label='Linear MPC (tuned v2)')
+    for label, color, csv_path in args.trajectory:
+        trajectory = load_xy(csv_path, 'x_m', 'y_m')
+        axis.plot(trajectory[::30, 0], trajectory[::30, 1],
+                  color=color, linewidth=1.3, alpha=0.9, label=label)
     axis.set_aspect('equal', adjustable='box')
     axis.set_xlabel('map x [m]')
     axis.set_ylabel('map y [m]')

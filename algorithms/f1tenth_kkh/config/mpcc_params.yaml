@@ -1,0 +1,56 @@
+mpcc_node:
+  ros__parameters:
+    enabled: false
+    solve_when_disabled: true
+
+    global_frame_id: "map"
+    base_frame_id: "ego_racecar/base_link"
+    odom_topic: "/ego_racecar/odom"
+    path_topic: "/planning/path"
+    drive_topic: "/drive"
+    collision_topic: "/ego_racecar/collision"
+
+    wheelbase: 0.33
+    horizon_steps: 10
+    dt: 0.10
+    control_rate: 10.0
+
+    # Tuned v1 (2026-08-11): raised from the conservative first pass
+    # (mpcc_params_baseline.yaml: target_speed 0.55/max_speed 0.75) after a
+    # speed sweep on track02 (see RESULT.md). Cost weights were left
+    # untouched -- MPCC's contouring/lag cost held tracking error flat as
+    # speed rose, so only target_speed/max_speed/v_theta_max needed to
+    # move. Chosen as the best margin/speed tradeoff: mean/p95 CTE still
+    # beat every algorithms/control baseline (Pure Pursuit safe, Linear MPC
+    # baseline/tuned v1/tuned v2) while cutting lap time from 53.79s to
+    # 34.64s. Went comfortably faster in testing (down to 21.77s) without a
+    # collision, but CTE started degrading past this point and those speeds
+    # are untested on real hardware -- do not push further without
+    # re-validating on the target platform.
+    target_speed: 0.85
+    min_reference_speed: 0.40
+    corner_slowdown_gain: 0.65
+    max_speed: 1.00
+    max_acceleration: 1.50
+    max_steering_angle: 0.4189
+    v_theta_min: 0.0
+    v_theta_max: 1.00
+
+    # Cost weights: state [x, y, v, yaw, theta], input [accel, steer, v_theta].
+    q_contour: 25.0
+    q_lag: 25.0
+    q_speed: 3.0
+    q_progress: 2.0
+    qf_scale: 1.5
+    r_acceleration: 0.20
+    r_steering: 1.00
+    rd_acceleration: 0.50
+    rd_steering: 8.00
+    rd_v_theta: 0.50
+
+    max_path_distance: 0.80
+    max_heading_error: 1.0472
+    odom_timeout: 0.50
+    path_timeout: 2.00
+    search_back_points: 5
+    search_forward_points: 30

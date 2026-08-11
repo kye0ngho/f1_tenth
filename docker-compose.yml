@@ -25,6 +25,7 @@ services:
       - ./algorithms/localization:/sim_ws/src/localization
       - ./algorithms/planning:/sim_ws/src/planning
       - ./algorithms/control:/sim_ws/src/control
+      - ./algorithms/f1tenth_kkh:/sim_ws/src/f1tenth_kkh
       - ./maps:/root/maps
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
     environment:
