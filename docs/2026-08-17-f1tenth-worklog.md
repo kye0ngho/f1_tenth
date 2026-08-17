@@ -106,6 +106,24 @@ Next implementation step:
 - Only publish a local avoidance path if it is wider than the current/global option and passes clearance.
 - If no candidate passes, keep `BLOCKED` and speed cap at zero.
 
+## 2026-08-18 Replanner Fix
+
+The local replanner no longer evaluates only one lateral offset per side.
+It now samples multiple Frenet-style lateral `d` candidates per side, scores
+feasible candidates by wall clearance, obstacle clearance, smoothness,
+current ego lateral offset, and side hysteresis, and keeps `BLOCKED` only
+when no candidate satisfies both wall and obstacle clearance.
+
+Validation after the change:
+
+- `colcon build --packages-select planning` passed in `f1tenth-sim-1`.
+- Offline reproduction for virtual obstacle `(6.74, 0.41, r=0.18)` selected
+  left `d=+0.463 m`, wall clearance `0.300 m`, obstacle distance `0.465 m`,
+  obstacle margin `+0.050 m`.
+- Short headless launch with the same obstacle repeatedly logged
+  `avoidance selected left target_d=0.42 m`; no lingering ROS processes after
+  the 35s timeout.
+
 ## Commands For Next Session
 
 Enter container:

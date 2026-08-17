@@ -48,6 +48,11 @@ class LocalAvoidancePlannerNode(Node):
         self.declare_parameter('min_wall_clearance_m', 0.16)
         self.declare_parameter('obstacle_path_clearance_m', 0.0)
         self.declare_parameter('side_switch_margin_m', 0.08)
+        self.declare_parameter('lateral_candidate_step_m', 0.05)
+        self.declare_parameter('wall_clearance_weight', 1.00)
+        self.declare_parameter('obstacle_clearance_weight', 0.35)
+        self.declare_parameter('smoothness_weight', 0.20)
+        self.declare_parameter('ego_lateral_weight', 0.10)
         self.declare_parameter('default_side', 'right')
 
         self.path = ClosedPath()
@@ -97,6 +102,16 @@ class LocalAvoidancePlannerNode(Node):
             configured_clearance, physical_clearance)
         self.side_switch_margin = float(
             self.get_parameter('side_switch_margin_m').value)
+        self.lateral_candidate_step = max(
+            0.01, float(self.get_parameter('lateral_candidate_step_m').value))
+        self.wall_clearance_weight = float(
+            self.get_parameter('wall_clearance_weight').value)
+        self.obstacle_clearance_weight = float(
+            self.get_parameter('obstacle_clearance_weight').value)
+        self.smoothness_weight = float(
+            self.get_parameter('smoothness_weight').value)
+        self.ego_lateral_weight = float(
+            self.get_parameter('ego_lateral_weight').value)
         default_side = str(self.get_parameter('default_side').value).lower()
         self.default_side = 1.0 if default_side == 'left' else -1.0
 
@@ -253,28 +268,58 @@ class LocalAvoidancePlannerNode(Node):
                     return max(0.0, (radius - 1) * self.map_resolution)
         return self.clearance_check_radius
 
-    def _target_lateral_for_side(self, obstacle_lateral, side):
-        target = obstacle_lateral + side * self.obstacle_path_clearance
-        if abs(target) < self.lane_offset:
-            target = side * self.lane_offset
-        return clamp(target, -self.max_lane_offset, self.max_lane_offset)
+    def _candidate_laterals_for_side(self, obstacle_lateral, side):
+        min_target = obstacle_lateral + side * self.obstacle_path_clearance
+        if abs(min_target) < self.lane_offset:
+            min_target = side * self.lane_offset
+        min_target = clamp(min_target, -self.max_lane_offset,
+                           self.max_lane_offset)
 
-    def _build_points_for_side(self, obstacle, side):
-        _ds, _obs_x, _obs_y, obs_s, lateral, _path_yaw = obstacle
+        signed_limit = side * self.max_lane_offset
+        if side > 0.0:
+            values = np.arange(
+                min_target,
+                signed_limit + 0.5 * self.lateral_candidate_step,
+                self.lateral_candidate_step)
+        else:
+            values = np.arange(
+                min_target,
+                signed_limit - 0.5 * self.lateral_candidate_step,
+                -self.lateral_candidate_step)
+
+        candidates = [
+            float(clamp(value, -self.max_lane_offset, self.max_lane_offset))
+            for value in values]
+        candidates.append(float(signed_limit))
+
+        unique = []
+        for value in candidates:
+            if not unique or abs(value - unique[-1]) > 1.0e-4:
+                unique.append(value)
+        return unique
+
+    def _build_points_for_target(self, obstacle, target_lateral):
+        _ds, _obs_x, _obs_y, obs_s, _lateral, _path_yaw = obstacle
         shifted = np.array(self.path.points, copy=True)
         active_indices = []
-        target_lateral = self._target_lateral_for_side(lateral, side)
 
         for index, base in enumerate(self.path.points):
-            delta = wrap_delta(float(self.path.cumulative[index]), obs_s, self.path.length)
-            if delta < -self.ramp_in or delta > self.obstacle_half_length + self.ramp_out:
+            delta = wrap_delta(
+                float(self.path.cumulative[index]), obs_s, self.path.length)
+            if (delta < -self.ramp_in
+                    or delta > self.obstacle_half_length + self.ramp_out):
                 weight = 0.0
             elif delta < 0.0:
-                weight = 0.5 * (1.0 - math.cos(math.pi * (delta + self.ramp_in) / self.ramp_in))
+                weight = 0.5 * (
+                    1.0 - math.cos(
+                        math.pi * (delta + self.ramp_in) / self.ramp_in))
             elif delta <= self.obstacle_half_length:
                 weight = 1.0
             else:
-                weight = 0.5 * (1.0 + math.cos(math.pi * (delta - self.obstacle_half_length) / self.ramp_out))
+                weight = 0.5 * (
+                    1.0 + math.cos(
+                        math.pi * (delta - self.obstacle_half_length)
+                        / self.ramp_out))
 
             if weight <= 0.0:
                 continue
@@ -284,54 +329,133 @@ class LocalAvoidancePlannerNode(Node):
             active_indices.append(index)
         return shifted, active_indices, target_lateral
 
-    def _score_candidate(self, points, active_indices, obstacle):
+    def _smoothness_cost(self, points, active_indices):
+        if len(active_indices) < 3:
+            return 0.0
+        total = 0.0
+        count = 0
+        path_count = len(points)
+        for index in active_indices:
+            previous_point = points[(index - 1) % path_count]
+            point = points[index]
+            next_point = points[(index + 1) % path_count]
+            first = point - previous_point
+            second = next_point - point
+            first_norm = float(np.linalg.norm(first))
+            second_norm = float(np.linalg.norm(second))
+            if first_norm <= 1.0e-6 or second_norm <= 1.0e-6:
+                continue
+            cos_angle = clamp(
+                float(np.dot(first, second) / (first_norm * second_norm)),
+                -1.0, 1.0)
+            total += abs(math.acos(cos_angle))
+            count += 1
+        return total / max(count, 1)
+
+    def _score_candidate(self, points, active_indices, obstacle,
+                         target_lateral, ego_lateral, side):
         if not active_indices:
-            return -1.0
+            return {
+                'feasible': False,
+                'score': -float('inf'),
+                'min_wall_clearance': -1.0,
+                'min_obstacle_distance': 0.0,
+                'obstacle_margin': -float('inf'),
+                'smoothness_cost': float('inf'),
+            }
         _ds, obs_x, obs_y, _obs_s, _lateral, _path_yaw = obstacle
         min_wall_clearance = self.clearance_check_radius
         min_obstacle_distance = float('inf')
         for index in active_indices:
             point = points[index]
-            wall_clearance = self._point_wall_clearance(float(point[0]), float(point[1]))
+            wall_clearance = self._point_wall_clearance(
+                float(point[0]), float(point[1]))
             min_wall_clearance = min(min_wall_clearance, wall_clearance)
             min_obstacle_distance = min(
                 min_obstacle_distance,
                 math.hypot(float(point[0]) - obs_x, float(point[1]) - obs_y))
 
         obstacle_margin = min_obstacle_distance - self.obstacle_path_clearance
-        if obstacle_margin < 0.0:
-            return obstacle_margin
-        return min_wall_clearance + 0.2 * min(obstacle_margin, self.clearance_check_radius)
+        smoothness_cost = self._smoothness_cost(points, active_indices)
+        feasible = (
+            obstacle_margin >= 0.0
+            and min_wall_clearance >= self.min_wall_clearance)
+        if not feasible:
+            score = min(obstacle_margin,
+                        min_wall_clearance - self.min_wall_clearance)
+        else:
+            score = (
+                self.wall_clearance_weight * min_wall_clearance
+                + self.obstacle_clearance_weight
+                * min(obstacle_margin, self.clearance_check_radius)
+                - self.smoothness_weight * smoothness_cost
+                - self.ego_lateral_weight * abs(target_lateral - ego_lateral))
+            if self.committed_side is not None and side == self.committed_side:
+                score += self.side_switch_margin
+        return {
+            'feasible': feasible,
+            'score': score,
+            'min_wall_clearance': min_wall_clearance,
+            'min_obstacle_distance': min_obstacle_distance,
+            'obstacle_margin': obstacle_margin,
+            'smoothness_cost': smoothness_cost,
+        }
 
-    def _build_replanned_points(self, obstacle):
+    def _build_replanned_points(self, obstacle, ego_lateral):
         preferred = self._preferred_side(obstacle[4])
         candidate_sides = [preferred, -preferred]
         candidates = []
 
         for side in candidate_sides:
-            points, active_indices, target_lateral = self._build_points_for_side(obstacle, side)
-            score = self._score_candidate(points, active_indices, obstacle)
-            candidates.append((score, side, points, target_lateral))
+            for target_lateral in self._candidate_laterals_for_side(
+                    obstacle[4], side):
+                points, active_indices, target_lateral = (
+                    self._build_points_for_target(obstacle, target_lateral))
+                metrics = self._score_candidate(
+                    points, active_indices, obstacle, target_lateral,
+                    ego_lateral, side)
+                candidates.append((metrics['score'], metrics, side,
+                                   points, target_lateral))
+
+        if not candidates:
+            self.committed_side = None
+            return np.array(self.path.points, copy=True), 0.0, True
+
+        left_best = max(
+            (score for score, _metrics, side, _points, _target in candidates
+             if side > 0.0),
+            default=-float('inf'))
+        right_best = max(
+            (score for score, _metrics, side, _points, _target in candidates
+             if side < 0.0),
+            default=-float('inf'))
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        feasible_candidates = [
+            item for item in candidates if item[1]['feasible']]
+        best = feasible_candidates[0] if feasible_candidates else candidates[0]
+        best_score, best_metrics, best_side, best_points, best_target = best
 
         self.get_logger().info(
-            'avoidance candidates: left=%.2f m, right=%.2f m' % (
-                next((score for score, side, _points, _target in candidates if side > 0.0), -1.0),
-                next((score for score, side, _points, _target in candidates if side < 0.0), -1.0)),
+            ('avoidance candidates: left=%.2f, right=%.2f, selected=%s '
+             'd=%.2f wall=%.2f obs=%.2f score=%.2f')
+            % (
+                left_best,
+                right_best,
+                'left' if best_side > 0.0 else 'right',
+                best_target,
+                best_metrics['min_wall_clearance'],
+                best_metrics['min_obstacle_distance'],
+                best_score),
             throttle_duration_sec=1.0)
-        candidates.sort(key=lambda item: item[0], reverse=True)
-        best_score, best_side, best_points, best_target = candidates[0]
 
-        if self.committed_side is not None:
-            for score, side, points, target_lateral in candidates:
-                if side == self.committed_side and score >= best_score - self.side_switch_margin:
-                    best_score, best_side, best_points = score, side, points
-                    best_target = target_lateral
-                    break
-
-        if best_score < self.min_wall_clearance:
+        if not best_metrics['feasible']:
             self.get_logger().warn(
-                'local avoidance blocked: best clearance %.2f m < %.2f m'
-                % (best_score, self.min_wall_clearance),
+                ('local avoidance blocked: wall=%.2f m req=%.2f m, '
+                 'obstacle_margin=%.2f m')
+                % (
+                    best_metrics['min_wall_clearance'],
+                    self.min_wall_clearance,
+                    best_metrics['obstacle_margin']),
                 throttle_duration_sec=1.0)
             self.committed_side = None
             return np.array(self.path.points, copy=True), 0.0, True
@@ -395,17 +519,21 @@ class LocalAvoidancePlannerNode(Node):
         if self.current_odom is not None:
             x = self.current_odom.pose.pose.position.x
             y = self.current_odom.pose.pose.position.y
-            ego_s, _lat, _dist, _yaw = self.path.nearest(x, y)
+            ego_s, ego_lateral, _dist, _yaw = self.path.nearest(x, y)
             obstacle = self._select_obstacle(ego_s)
             if obstacle is not None:
                 obstacle = self._stabilize_obstacle(obstacle)
-                points, side, blocked = self._build_replanned_points(obstacle)
+                points, side, blocked = self._build_replanned_points(
+                    obstacle, ego_lateral)
                 if blocked:
                     active = True
                     state = 'BLOCKED'
                 else:
                     active = True
-                    state = 'LOCAL_AVOIDANCE_LEFT' if side > 0.0 else 'LOCAL_AVOIDANCE_RIGHT'
+                    if side > 0.0:
+                        state = 'LOCAL_AVOIDANCE_LEFT'
+                    else:
+                        state = 'LOCAL_AVOIDANCE_RIGHT'
             else:
                 self.committed_side = None
                 self.filtered_obstacle = None
