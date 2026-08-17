@@ -5,8 +5,11 @@ mpcc_node:
 
     global_frame_id: "map"
     base_frame_id: "ego_racecar/base_link"
-    odom_topic: "/ego_racecar/odom"
+    odom_topic: "/car_state/odom"
     path_topic: "/planning/path"
+    speed_profile_topic: "/planning/speed_profile"
+    speed_profile_enabled: true
+    speed_profile_timeout: 2.0
     drive_topic: "/drive"
     collision_topic: "/ego_racecar/collision"
 

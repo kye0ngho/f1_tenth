@@ -5,8 +5,11 @@ mpcc_node:
 
     global_frame_id: "map"
     base_frame_id: "ego_racecar/base_link"
-    odom_topic: "/ego_racecar/odom"
+    odom_topic: "/car_state/odom"
     path_topic: "/planning/path"
+    speed_profile_topic: "/planning/speed_profile"
+    speed_profile_enabled: true
+    speed_profile_timeout: 2.0
     drive_topic: "/drive"
     collision_topic: "/ego_racecar/collision"
 
@@ -15,24 +18,18 @@ mpcc_node:
     dt: 0.10
     control_rate: 10.0
 
-    # Tuned v1 (2026-08-11): raised from the conservative first pass
-    # (mpcc_params_baseline.yaml: target_speed 0.55/max_speed 0.75) after a
-    # speed sweep on track02 (see RESULT.md). Cost weights were left
-    # untouched -- MPCC's contouring/lag cost held tracking error flat as
-    # speed rose, so only target_speed/max_speed/v_theta_max needed to
-    # move. Chosen as the best margin/speed tradeoff: mean/p95 CTE still
-    # beat every algorithms/control baseline (Pure Pursuit safe, Linear MPC
-    # baseline/tuned v1/tuned v2) while cutting lap time from 53.79s to
-    # 34.64s. Went comfortably faster in testing (down to 21.77s) without a
-    # collision, but CTE started degrading past this point and those speeds
-    # are untested on real hardware -- do not push further without
-    # re-validating on the target platform.
+    # Stable visual-test profile: restore the repeatedly verified tuned-v1
+    # MPCC speed first. The attempted 1.05/N=8 profile missed the 10 Hz
+    # deadline and mixed stop/drive commands, so use this as the baseline
+    # before pushing speed again.
     target_speed: 0.85
     min_reference_speed: 0.40
     corner_slowdown_gain: 0.65
     max_speed: 1.00
     max_acceleration: 1.50
     max_steering_angle: 0.4189
+    max_steering_rate: 99.0
+    max_lateral_accel: 0.0
     v_theta_min: 0.0
     v_theta_max: 1.00
 
@@ -54,3 +51,75 @@ mpcc_node:
     path_timeout: 2.00
     search_back_points: 5
     search_forward_points: 30
+
+    # Solver/runtime tuning. solve_time_ms is wall time including cvxpy
+    # canonicalization; osqp_solve_time_ms and solver_iterations expose the
+    # actual OSQP workload for speed tuning.
+    solver_backend: "osqp_native"
+    solver_eps_abs: 0.002
+    solver_eps_rel: 0.002
+    solver_max_iter: 600
+    solver_polish: false
+    solver_verbose: false
+    solver_ignore_dpp: true
+    solver_warm_start: true
+    publish_visualization_rate: 5.0
+
+    # Static-obstacle avoidance (2026-08-14, Head-to-Head prep). See
+    # README.md/RESULT.md for the algorithm and scan_callback/
+    # update_obstacle_constraints() in mpcc_node.py for the implementation.
+    obstacle_enabled: false
+    scan_topic: "/scan"
+    laser_frame_id: "ego_racecar/laser"
+    # Range-jump clustering threshold: smaller than the >=0.29m gap that
+    # would appear between an obstacle's near edge and the track wall
+    # behind it at this track's scale, larger than typical scan noise.
+    obstacle_cluster_jump_m: 0.15
+    obstacle_min_points: 3
+    # Track walls return long, wide clusters; a competition obstacle prop
+    # is small. 0.60m stays well under any wall-segment chord length.
+    obstacle_max_width_m: 0.60
+    # The sim LiDAR's range_max is 30m -- far beyond this track's own
+    # size (23m lap length). At long range and grazing angles, a wall
+    # viewed nearly edge-on fragments into many small-chord clusters that
+    # pass obstacle_max_width_m, producing false-positive "obstacles"
+    # nowhere near the vehicle (observed directly: clusters detected 5+m
+    # away on a clean track, one of which triggered an OSQP internal
+    # crash -- see RESULT.md). Capping detection range well inside the
+    # track's own scale avoids this; it also has no practical cost since
+    # obstacle_relevance_ahead_m/the MPC horizon can't react to anything
+    # this far out anyway.
+    obstacle_max_range_m: 4.00
+    # Track02 half-width measured 0.575-0.65m (see
+    # planning/waypoints/track02_centerline_optimizer.csv); 0.50m keeps
+    # this comfortably inside the drivable corridor so wall returns at
+    # the track edge are not misread as obstacles.
+    obstacle_corridor_m: 0.50
+    obstacle_relevance_ahead_m: 3.00
+    obstacle_relevance_behind_m: 0.30
+    # Only horizon steps whose reference arc-length falls within this of
+    # the obstacle get the tightened halfspace (see
+    # update_obstacle_constraints() docstring for why: without this
+    # gating, a step-0 constraint tied to the vehicle's actual current
+    # pose would make the QP infeasible the moment an obstacle enters the
+    # relevance window, long before the vehicle reaches it).
+    obstacle_longitudinal_margin_m: 0.30
+    # Vehicle half-width is ~0.148m (see validate_raceline.py
+    # --vehicle-width 0.296); this is deliberately close to that rather
+    # than a generous margin. At this track's stable profile
+    # (target_speed 0.85, horizon_steps 10) the MPC horizon reaches
+    # ~0.85m ahead before curvature/obstacle slowdown,
+    # which leaves little steering-authority/time to complete a wide
+    # swerve -- an empirical feasibility sweep (see RESULT.md) found the
+    # QP starts going infeasible for close-in obstacles above roughly
+    # this value even with obstacle_slowdown_gain active below. Prefer
+    # raising this only after re-validating feasibility across obstacle
+    # distances the way RESULT.md did, not by intuition alone.
+    obstacle_keepout_radius_m: 0.20
+    # Reference-speed slowdown on approach to a relevant obstacle (same
+    # divisor form as corner_slowdown_gain, see _build_progress_reference).
+    # Buys more reaction time for the keepout swerve above; see
+    # update_obstacle_constraints()/RESULT.md for the empirical feasibility
+    # sweep this value came from.
+    obstacle_slowdown_gain: 6.00
+    obstacle_stale_timeout_s: 0.50

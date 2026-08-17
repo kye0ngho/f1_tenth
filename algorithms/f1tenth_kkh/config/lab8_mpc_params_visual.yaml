@@ -3,15 +3,16 @@ lab8_mpc_node:
     enabled: false
     solve_when_disabled: true
 
-    # AMCL/localized-odom mode for map-aligned runs. Use
-    # lab8_mpc_params_visual.yaml for the older RViz-only odom test profile.
-    global_frame_id: "map"
+    # RViz visual-test mode: use simulator odom directly. AMCL's map->odom
+    # estimate can drift or stay stale after /sim_reset_pose, while /odom is
+    # reset to the same coordinates as the track waypoints.
+    global_frame_id: "odom"
     base_frame_id: "ego_racecar/base_link"
-    odom_topic: "/car_state/odom"
+    odom_topic: "/ego_racecar/odom"
     path_topic: "/planning/path"
     drive_topic: "/drive"
     collision_topic: "/ego_racecar/collision"
-    disable_on_collision: true
+    disable_on_collision: false
     collision_disable_count: 3
 
     wheelbase: 0.33

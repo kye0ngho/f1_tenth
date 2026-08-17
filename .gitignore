@@ -147,3 +147,5 @@ results/*_bag/
 *.pem
 *.key
 *.p12
+# Local reference checkout; do not vendor the full UNICORN stack here.
+unicorn-racing-stack/

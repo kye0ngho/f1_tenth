@@ -8,6 +8,9 @@
   <license>TODO: License declaration</license>
 
   <depend>rclpy</depend>
+  <depend>nav2_lifecycle_manager</depend>
+  <depend>nav2_amcl</depend>
+  <depend>nav2_map_server</depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

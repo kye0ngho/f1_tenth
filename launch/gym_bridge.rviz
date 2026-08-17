@@ -36,8 +36,8 @@ Visualization Manager:
       Name: Grid
       Normal Cell Count: 0
       Offset:
-        X: 0
-        Y: 0
+        X: 4.5
+        Y: 2.0
         Z: 0
       Plane: XY
       Plane Cell Count: 10
@@ -157,6 +157,44 @@ Visualization Manager:
       Update Interval: 0
       Value: true
       Visual Enabled: true
+    - Angle Tolerance: 0.10000000149011612
+      Class: rviz_default_plugins/Odometry
+      Covariance:
+        Orientation:
+          Alpha: 0.5
+          Color: 255; 255; 127
+          Color Style: Unique
+          Frame: Local
+          Offset: 1
+          Scale: 1
+          Value: false
+        Position:
+          Alpha: 0.30000001192092896
+          Color: 204; 51; 204
+          Scale: 1
+          Value: false
+        Value: false
+      Enabled: true
+      Keep: 500
+      Name: CarStateOdomTrail
+      Position Tolerance: 0.010000000707805157
+      Shape:
+        Alpha: 1
+        Axes Length: 0.3500000238418579
+        Axes Radius: 0.030000001192092896
+        Color: 255; 60; 60
+        Head Length: 0.30000001192092896
+        Head Radius: 0.09000000357627869
+        Shaft Length: 0.45000001788139343
+        Shaft Radius: 0.04000000283122063
+        Value: Arrow
+      Topic:
+        Depth: 20
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /car_state/odom
+      Value: true
     - Class: rviz_default_plugins/PoseWithCovariance
       Enabled: true
       Name: AMCLPose
@@ -176,6 +214,33 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Best Effort
         Value: /particle_cloud
+      Value: true
+    - Alpha: 0.55
+      Buffer Length: 1
+      Class: rviz_default_plugins/Path
+      Color: 180; 180; 180
+      Enabled: true
+      Head Diameter: 0.30000001192092896
+      Head Length: 0.20000000298023224
+      Length: 0.30000001192092896
+      Line Style: Lines
+      Line Width: 0.03500000014901161
+      Name: GlobalPath
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0.025
+      Pose Color: 180; 180; 180
+      Pose Style: None
+      Radius: 0.029999999329447746
+      Shaft Diameter: 0.10000000149011612
+      Shaft Length: 0.10000000149011612
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /planning/global_path
       Value: true
     - Alpha: 1
       Buffer Length: 1
@@ -206,15 +271,39 @@ Visualization Manager:
       Value: true
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
-      Name: PlanningMarkers
+      Name: LocalReplanMarkers
       Namespaces:
-        planning_path: true
+        local_replan: true
       Topic:
         Depth: 5
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /planning/markers
+        Value: /planning/local_replan_markers
+      Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: DetectedObstacleMarkers
+      Namespaces:
+        detected_obstacles: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /planning/detected_obstacle_markers
+      Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: VirtualObstacles
+      Namespaces:
+        virtual_obstacles: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /planning/virtual_obstacles
       Value: true
     - Alpha: 1
       Buffer Length: 1
@@ -226,7 +315,7 @@ Visualization Manager:
       Length: 0.30000001192092896
       Line Style: Lines
       Line Width: 0.05000000074505806
-      Name: MPCReference
+      Name: MPCCReference
       Offset:
         X: 0
         Y: 0
@@ -241,7 +330,7 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /mpc/reference_path
+        Value: /f1tenth_kkh/mpcc/reference_path
       Value: true
     - Alpha: 1
       Buffer Length: 1
@@ -253,7 +342,7 @@ Visualization Manager:
       Length: 0.30000001192092896
       Line Style: Lines
       Line Width: 0.07999999821186066
-      Name: MPCPredicted
+      Name: MPCCPredicted
       Offset:
         X: 0
         Y: 0
@@ -268,7 +357,7 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /mpc/predicted_path
+        Value: /f1tenth_kkh/mpcc/predicted_path
       Value: true
   Enabled: true
   Global Options:
@@ -313,15 +402,15 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 10
+      Distance: 7
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 0
-        Y: 0
+        X: 4.5
+        Y: 2.0
         Z: 0
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806

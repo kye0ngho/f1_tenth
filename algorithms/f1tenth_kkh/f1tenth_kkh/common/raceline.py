@@ -109,6 +109,38 @@ class ClosedRaceline:
         self._nearest_index = nearest
         return nearest, distance, float(self.yaw[nearest]), path_s
 
+    def nearest_arc_length_stateless(self, x, y):
+        """Return (path_s, lateral_offset) of the closest point on the
+        raceline to (x, y), scanning every segment.
+
+        Unlike nearest_state, this does not read or update the
+        search-hint cache (_nearest_index), so it is safe to call for
+        points other than the vehicle's own pose -- e.g. projecting a
+        detected obstacle onto the raceline in mpcc_node.py -- without
+        disturbing ego-pose tracking's search hint.
+        """
+        position = np.array([x, y])
+        count = len(self.points)
+        best = None
+        for index in range(count):
+            segment = self.points[(index + 1) % count] - self.points[index]
+            relative = position - self.points[index]
+            fraction = clamp(
+                float(np.dot(relative, segment) / np.dot(segment, segment)),
+                0.0, 1.0,
+            )
+            projection = self.points[index] + fraction * segment
+            distance = float(np.linalg.norm(projection - position))
+            candidate = (distance, index, fraction)
+            if best is None or candidate[0] < best[0]:
+                best = candidate
+
+        distance, nearest, fraction = best
+        path_s = (
+            self.cumulative[nearest]
+            + fraction * self.segment_lengths[nearest])
+        return path_s, distance
+
     def interpolate(self, values, sample_s, lap_change=0.0):
         laps = np.floor(sample_s / self.length).astype(int)
         wrapped = np.mod(sample_s, self.length)

@@ -36,6 +36,7 @@ setup(
     entry_points={
         'console_scripts': [
             'localization_node = localization.localization_node:main',
+            'localized_odom_node = localization.localized_odom_node:main',
         ],
     },
 )

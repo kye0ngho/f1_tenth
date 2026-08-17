@@ -16,12 +16,16 @@
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>tf2_ros</exec_depend>
   <exec_depend>rclpy</exec_depend>
+  <exec_depend>localization</exec_depend>
   <exec_depend>joint_state_publisher</exec_depend>
   <exec_depend>xacro</exec_depend>
   <exec_depend>nav2_map_server</exec_depend>
   <exec_depend>nav2_amcl</exec_depend>
   <exec_depend>nav2_lifecycle_manager</exec_depend>
   <exec_depend>nav2_rviz_plugins</exec_depend>
+  <exec_depend>planning</exec_depend>
+  <exec_depend>f1tenth_kkh</exec_depend>
+  <exec_depend>std_srvs</exec_depend>
   <exec_depend>teleop_twist_keyboard</exec_depend>
   
   <depend>python-transforms3d-pip</depend>

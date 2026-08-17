@@ -40,6 +40,10 @@ setup(
     entry_points={
         'console_scripts': [
             'waypoint_planner_node = planning.waypoint_planner_node:main',
+            'speed_profile_node = planning.speed_profile_node:main',
+            'scan_obstacle_detector_node = planning.scan_obstacle_detector_node:main',
+            'local_avoidance_planner_node = planning.local_avoidance_planner_node:main',
+            'virtual_obstacle_scan_node = planning.virtual_obstacle_scan_node:main',
         ],
     },
 )

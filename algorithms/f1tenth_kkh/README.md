@@ -77,11 +77,39 @@ python3 /sim_ws/src/control/scripts/plot_controller_comparison.py \
   0.85m/s)이 baseline 최고 기록 2개(가장 빠른 랩 Linear MPC tuned v1 42.78s,
   가장 정확한 CTE Linear MPC tuned v2 mean 0.070m)를 동시에 갱신** —
   34.75s/mean CTE 0.068m, 충돌 없음.
-- Head-to-Head: 장애물/상대차량 회피가 필요하지만 이번 라운드에는 구현하지
-  않았습니다. `mpcc_node.py`의 `obstacle_a_parameters`/`obstacle_b_parameters`/
-  `update_obstacle_constraints()`가 나중에 얹을 확장 지점입니다.
-  (`smitdumore/f110-mpc`의 occupancy-grid 샘플링 아이디어를 참고할 수 있음 —
-  `RESULT.md`의 외부 저장소 조사 참고.)
+- RViz 고속 시각 검증용으로는 `lab8` MPC에 별도 4.0m/s 프로파일을 적용했다
+  (`config/lab8_mpc_params.yaml`). 최종 topic 계측은 12초 기준 collision 0,
+  `/drive.drive.speed` max 3.548m/s, safety cap max 3.970m/s. 이 설정은
+  `MPC + rule-based safety governor` 구조이며, 완전한 obstacle-aware MPC가
+  아니다. 상세 방법론/파라미터/재현 명령은 `RESULT.md`의
+  `2026-08-14 (3): RViz 고속 Lab8 MPC 튜닝` 항목 참고.
+- Head-to-Head: **정적 장애물 회피를 `mpcc`에 구현했습니다** (2026-08-14,
+  동적 상대차량 회피는 이번 라운드 범위 밖). LaserScan을 range-jump로
+  클러스터링하고(`common/obstacle_detection.py`), 폭이 좁고(벽이 아니고)
+  raceline 코너리도어 안에 있는 클러스터만 장애물로 인정합니다
+  (`mpcc_node.py`의 `scan_callback`). 진행방향으로 가장 가까운 장애물 하나에
+  대해 raceline의 lateral(contouring) 축을 법선으로 하는 분리 초평면을
+  세우고(`update_obstacle_constraints()`), horizon 중 그 장애물의 arc-length
+  근처 구간에만 적용합니다 — 매 제어 주기(10Hz) 현재 위치 기준으로 다시
+  계산되므로 이것이 replanning에 해당합니다. 접근 중에는
+  `corner_slowdown_gain`과 같은 방식으로 속도를 미리 줄이는
+  `obstacle_slowdown_gain`도 추가했는데, 이게 없으면 이 트랙의 대회 속도
+  (target_speed 0.85m/s)에서 MPC horizon이 확보하는 반응 거리(~0.85-1.4m)가
+  keepout 회피 기동을 완주하기엔 부족해서 QP가 바로 infeasible이 됩니다
+  (실측: `RESULT.md`). 이 infeasible 상황은 새로 안전 로직을 추가하지 않고
+  기존 solver-실패 → 안전 정지 경로를 그대로 재사용합니다. **범위 밖**:
+  동적 상대차량(속도/진행방향 추정 필요), 장애물 2개 이상 동시 처리, 매우
+  가까운 거리(실측상 ~1.5m 미만, 정지 상태 기준)에서 갑자기 나타난 장애물—
+  이 경우 회피 대신 안전 정지가 발생합니다.
+  **주의(2026-08-14 (2) 실측)**: 이 트랙에서 `target_speed`를 0.85m/s보다
+  올리면(예: 1.10m/s) 재현성이 없습니다 — 같은 시작 pose에서 반복 시행 시
+  완주와 시작 직후 급커브에서의 충돌이 뒤섞여 나왔습니다(`RESULT.md`의
+  5회 시행 표 참고). 대회에는 반드시 `mpcc_params.yaml`의 채택된
+  0.85m/s를 그대로 사용하세요. 또한 이 검증 과정에서 장거리(수 미터)
+  grazing-angle 벽 반사가 허위 장애물로 오검출되어 `mpcc_node` 프로세스
+  전체가 죽는 버그를 발견해 수정했습니다(`obstacle_max_range_m` 추가 +
+  `control_loop`의 예외 처리를 `except Exception`으로 확장 — 자세한 내용은
+  `RESULT.md`).
 - 온보드(Jetson/NUC/RPi급) 실시간성이 실전 투입 기준입니다. 각 컨트롤러의
   `solve_time_ms` p95가 10Hz(100ms) 예산 안에 드는지 실측 없이 `control_rate`나
   `horizon_steps`를 올리지 마세요. 개발 데스크톱 실측(dry-run, n=143, 자세한 내용은
