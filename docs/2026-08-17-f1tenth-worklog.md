@@ -124,6 +124,34 @@ Validation after the change:
   `avoidance selected left target_d=0.42 m`; no lingering ROS processes after
   the 35s timeout.
 
+## 2026-08-18 Dawn Resume Note
+
+If the user says "8/18 dawn work" or asks to continue the MPCC/UNICORN
+replanner work, resume from this state:
+
+- Latest functional commit before this note: `81c5872 Improve local replanner
+  candidate selection`.
+- The issue diagnosed on 2026-08-17 was not MPCC failure. The local
+  replanner was publishing `BLOCKED`, so MPCC correctly applied
+  `blocked_speed_cap: 0.0`.
+- On 2026-08-18, `local_avoidance_planner_node.py` was changed from one
+  lateral shift per side to multi-candidate Frenet-style lateral `d`
+  sampling and scoring.
+- Verified: `colcon build --packages-select planning` passed in
+  `f1tenth-sim-1`. Offline and short headless launch both selected a left
+  avoidance path for `(6.74, 0.41, r=0.18)` instead of `BLOCKED`.
+- Next action: run full MPCC enable test, preferably headless first and RViz
+  second. Watch `/planning/replan_state`, `/drive`,
+  `/ego_racecar/collision`, `/f1tenth_kkh/mpcc/solve_time_ms`, and local
+  replanner logs.
+- Expected first result: `/planning/replan_state` should become
+  `LOCAL_AVOIDANCE_LEFT` near the virtual obstacle, MPCC should publish a
+  nonzero speed capped by `avoidance_speed_cap`, and collision should remain
+  false.
+- If it still fails, debug MPCC tracking of the modified `/planning/path`
+  next, not obstacle detection first, because the detector/replanner already
+  selected a feasible path in the short launch.
+
 ## Commands For Next Session
 
 Enter container:
