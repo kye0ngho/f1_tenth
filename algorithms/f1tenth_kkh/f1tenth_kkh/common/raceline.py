@@ -63,6 +63,13 @@ class ClosedRaceline:
         arc_span = np.roll(segment_lengths, 1) + segment_lengths
         curvature = (next_yaw - previous_yaw) / np.maximum(arc_span, 1e-6)
 
+        # A same-length update (e.g. the local avoidance planner shifting a
+        # few points laterally) keeps point indices aligned with the same
+        # arc-length neighborhood, so the previous search-hint is still a
+        # good starting point -- only a genuinely new path (different point
+        # count) needs the windowed search to restart from scratch.
+        keep_hint = self.points is not None and len(points) == len(self.points)
+
         self.points = points
         self.yaw = yaw
         self.curvature = curvature
@@ -70,7 +77,8 @@ class ClosedRaceline:
         self.cumulative = np.concatenate(([0.0], np.cumsum(segment_lengths)))
         self.length = float(self.cumulative[-1])
         self.yaw_lap_change = float(yaw_lap_change)
-        self._nearest_index = None
+        if not keep_hint:
+            self._nearest_index = None
 
     def candidate_indices(self):
         count = len(self.points)

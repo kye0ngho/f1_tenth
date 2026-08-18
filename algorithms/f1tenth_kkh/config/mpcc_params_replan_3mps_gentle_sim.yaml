@@ -1,0 +1,83 @@
+mpcc_node:
+  ros__parameters:
+    enabled: false
+    solve_when_disabled: true
+
+    global_frame_id: "map"
+    base_frame_id: "ego_racecar/base_link"
+    odom_topic: "/car_state/odom"
+    path_topic: "/planning/path"
+    speed_profile_topic: "/planning/speed_profile"
+    speed_profile_enabled: true
+    speed_profile_timeout: 2.0
+    replan_state_topic: "/planning/replan_state"
+    replan_state_timeout: 0.60
+    blocked_speed_cap: 0.0
+    avoidance_speed_cap: 1.20
+    drive_topic: "/drive"
+    collision_topic: "/ego_racecar/collision"
+
+    wheelbase: 0.33
+    horizon_steps: 14
+    dt: 0.07
+    control_rate: 15.0
+
+    # Same corner governor as mpcc_params_replan_straight_sim.yaml
+    # (max_lateral_accel/corner_slowdown_gain unchanged) with the straight-
+    # line ceiling raised further to ~2.8-3.0 m/s. The early/gentle braking
+    # into corners is controlled by speed_profile_node's decel_limit
+    # (launch arg speed_profile_decel), not by anything here -- see the
+    # gym_bridge_launch.py invocation used with this file.
+    target_speed: 2.80
+    min_reference_speed: 0.45
+    corner_slowdown_gain: 0.55
+    max_speed: 3.00
+    max_acceleration: 2.00
+    max_steering_angle: 0.4189
+    max_steering_rate: 99.0
+    max_lateral_accel: 2.20
+    v_theta_min: 0.0
+    v_theta_max: 3.00
+
+    q_contour: 30.0
+    q_lag: 25.0
+    q_speed: 7.0
+    q_progress: 1.2
+    qf_scale: 1.5
+    r_acceleration: 0.25
+    r_steering: 1.40
+    rd_acceleration: 0.60
+    rd_steering: 10.00
+    rd_v_theta: 0.70
+
+    max_path_distance: 1.20
+    max_heading_error: 1.0472
+    odom_timeout: 0.50
+    path_timeout: 2.00
+    search_back_points: 5
+    search_forward_points: 30
+
+    solver_backend: "osqp_native"
+    solver_eps_abs: 0.004
+    solver_eps_rel: 0.004
+    solver_max_iter: 450
+    solver_polish: false
+    solver_verbose: false
+    solver_ignore_dpp: true
+    solver_warm_start: true
+    publish_visualization_rate: 4.0
+
+    obstacle_enabled: false
+    scan_topic: "/scan"
+    laser_frame_id: "ego_racecar/laser"
+    obstacle_cluster_jump_m: 0.15
+    obstacle_min_points: 3
+    obstacle_max_width_m: 0.60
+    obstacle_max_range_m: 4.00
+    obstacle_corridor_m: 0.50
+    obstacle_relevance_ahead_m: 3.00
+    obstacle_relevance_behind_m: 0.30
+    obstacle_longitudinal_margin_m: 0.30
+    obstacle_keepout_radius_m: 0.20
+    obstacle_slowdown_gain: 6.00
+    obstacle_stale_timeout_s: 0.50

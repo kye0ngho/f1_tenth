@@ -24,6 +24,7 @@ class ClosedPath:
     def __init__(self):
         self.points = None
         self.yaw = None
+        self.curvature = None
         self.segment_lengths = None
         self.cumulative = None
         self.length = None
@@ -49,14 +50,43 @@ class ClosedPath:
         if np.any(lengths < 1.0e-5):
             return False
 
-        yaw = np.unwrap(np.arctan2(segments[:, 1], segments[:, 0]))
+        # Segment headings are cyclic. Compute the turn angle with atan2 so
+        # the last-to-first transition is wrapped to [-pi, pi] instead of
+        # producing an artificial large curvature at the path seam.
+        yaw = np.arctan2(segments[:, 1], segments[:, 0])
+        previous_yaw = np.roll(yaw, 1)
+        next_yaw = np.roll(yaw, -1)
+        turn_angle = np.arctan2(
+            np.sin(next_yaw - previous_yaw),
+            np.cos(next_yaw - previous_yaw))
+        arc_span = np.roll(lengths, 1) + lengths
+        curvature = turn_angle / np.maximum(arc_span, 1.0e-6)
+
         self.points = points
         self.yaw = yaw
+        self.curvature = curvature
         self.segment_lengths = lengths
         self.cumulative = np.concatenate(([0.0], np.cumsum(lengths)))
         self.length = float(self.cumulative[-1])
         self.frame_id = msg.header.frame_id or self.frame_id
         return True
+
+    def mean_curvature_ahead(self, s_value, lookahead_m):
+        """Mean signed curvature of the path over [s_value, s_value +
+        lookahead_m], wrapping around the closed loop. Positive means the
+        path is turning left over that stretch."""
+        if self.curvature is None or self.length is None or self.length <= 0.0:
+            return 0.0
+        start = s_value % self.length
+        end = start + max(lookahead_m, 0.0)
+        mask = np.zeros(len(self.curvature), dtype=bool)
+        for index in range(len(self.curvature)):
+            delta = (self.cumulative[index] - start) % self.length
+            if delta <= (end - start):
+                mask[index] = True
+        if not np.any(mask):
+            return 0.0
+        return float(np.mean(self.curvature[mask]))
 
     def nearest(self, x, y):
         position = np.array([x, y], dtype=float)

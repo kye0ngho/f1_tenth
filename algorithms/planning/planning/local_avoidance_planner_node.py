@@ -48,11 +48,17 @@ class LocalAvoidancePlannerNode(Node):
         self.declare_parameter('min_wall_clearance_m', 0.16)
         self.declare_parameter('obstacle_path_clearance_m', 0.0)
         self.declare_parameter('side_switch_margin_m', 0.08)
+        self.declare_parameter('state_switch_hold_s', 0.30)
+        self.declare_parameter('side_lock_ego_offset_m', 0.25)
+        self.declare_parameter('target_lateral_rate_limit_mps', 1.50)
+        self.declare_parameter('corner_lookahead_m', 2.00)
+        self.declare_parameter('corner_curvature_threshold', 0.15)
         self.declare_parameter('lateral_candidate_step_m', 0.05)
         self.declare_parameter('wall_clearance_weight', 1.00)
         self.declare_parameter('obstacle_clearance_weight', 0.35)
         self.declare_parameter('smoothness_weight', 0.20)
         self.declare_parameter('ego_lateral_weight', 0.10)
+        self.declare_parameter('target_continuity_weight', 0.80)
         self.declare_parameter('default_side', 'right')
 
         self.path = ClosedPath()
@@ -61,6 +67,15 @@ class LocalAvoidancePlannerNode(Node):
         self.obstacles = []
         self.committed_side = None
         self.filtered_obstacle = None
+        self.smoothed_target_lateral = None
+        self.smoothed_target_time = None
+        self.committed_state = 'GLOBAL'
+        self.committed_points = None
+        self.committed_side_out = 0.0
+        self.pending_label = None
+        self.pending_since = None
+        self.pending_points = None
+        self.pending_side = 0.0
         self.map_grid = None
         self.map_resolution = None
         self.map_origin_x = 0.0
@@ -102,6 +117,16 @@ class LocalAvoidancePlannerNode(Node):
             configured_clearance, physical_clearance)
         self.side_switch_margin = float(
             self.get_parameter('side_switch_margin_m').value)
+        self.state_switch_hold = float(
+            self.get_parameter('state_switch_hold_s').value)
+        self.side_lock_ego_offset = float(
+            self.get_parameter('side_lock_ego_offset_m').value)
+        self.target_lateral_rate_limit = max(
+            0.01, float(self.get_parameter('target_lateral_rate_limit_mps').value))
+        self.corner_lookahead = float(
+            self.get_parameter('corner_lookahead_m').value)
+        self.corner_curvature_threshold = float(
+            self.get_parameter('corner_curvature_threshold').value)
         self.lateral_candidate_step = max(
             0.01, float(self.get_parameter('lateral_candidate_step_m').value))
         self.wall_clearance_weight = float(
@@ -112,6 +137,8 @@ class LocalAvoidancePlannerNode(Node):
             self.get_parameter('smoothness_weight').value)
         self.ego_lateral_weight = float(
             self.get_parameter('ego_lateral_weight').value)
+        self.target_continuity_weight = float(
+            self.get_parameter('target_continuity_weight').value)
         default_side = str(self.get_parameter('default_side').value).lower()
         self.default_side = 1.0 if default_side == 'left' else -1.0
 
@@ -224,11 +251,26 @@ class LocalAvoidancePlannerNode(Node):
         return (ds, float(position[0]), float(position[1]),
                 filtered_s, filtered_lateral, yaw)
 
-    def _preferred_side(self, obstacle_lateral):
+    def _corner_outside_side(self, obs_s):
+        """Side that is on the outside of any corner starting near the
+        obstacle, using path curvature ahead. Positive (mean) curvature is
+        a left turn, whose outside is to the right, and vice versa. Returns
+        None when the road ahead is close enough to straight that this
+        shouldn't override anything."""
+        mean_kappa = self.path.mean_curvature_ahead(
+            obs_s, self.corner_lookahead)
+        if abs(mean_kappa) < self.corner_curvature_threshold:
+            return None
+        return -1.0 if mean_kappa > 0.0 else 1.0
+
+    def _preferred_side(self, obstacle_lateral, obs_s):
         if obstacle_lateral > self.center_deadband:
             return -1.0
         if obstacle_lateral < -self.center_deadband:
             return 1.0
+        corner_side = self._corner_outside_side(obs_s)
+        if corner_side is not None:
+            return corner_side
         if self.committed_side is not None:
             return self.committed_side
         return self.default_side
@@ -362,6 +404,7 @@ class LocalAvoidancePlannerNode(Node):
                 'min_obstacle_distance': 0.0,
                 'obstacle_margin': -float('inf'),
                 'smoothness_cost': float('inf'),
+                'continuity_cost': float('inf'),
             }
         _ds, obs_x, obs_y, _obs_s, _lateral, _path_yaw = obstacle
         min_wall_clearance = self.clearance_check_radius
@@ -377,6 +420,10 @@ class LocalAvoidancePlannerNode(Node):
 
         obstacle_margin = min_obstacle_distance - self.obstacle_path_clearance
         smoothness_cost = self._smoothness_cost(points, active_indices)
+        continuity_cost = 0.0
+        if self.smoothed_target_lateral is not None:
+            continuity_cost = abs(
+                target_lateral - self.smoothed_target_lateral)
         feasible = (
             obstacle_margin >= 0.0
             and min_wall_clearance >= self.min_wall_clearance)
@@ -390,8 +437,13 @@ class LocalAvoidancePlannerNode(Node):
                 * min(obstacle_margin, self.clearance_check_radius)
                 - self.smoothness_weight * smoothness_cost
                 - self.ego_lateral_weight * abs(target_lateral - ego_lateral))
+            # Map-cell quantization can make near-equivalent candidates
+            # alternate between ticks. Stabilize the argmax itself before
+            # the separate output slew limiter is applied.
+            score -= self.target_continuity_weight * continuity_cost
             if self.committed_side is not None and side == self.committed_side:
                 score += self.side_switch_margin
+
         return {
             'feasible': feasible,
             'score': score,
@@ -399,11 +451,45 @@ class LocalAvoidancePlannerNode(Node):
             'min_obstacle_distance': min_obstacle_distance,
             'obstacle_margin': obstacle_margin,
             'smoothness_cost': smoothness_cost,
+            'continuity_cost': continuity_cost,
         }
 
+    def _slew_target_lateral(self, goal):
+        """Rate-limit the published target_lateral toward `goal` instead of
+        snapping to it every tick. _build_replanned_points' argmax over a
+        discretized candidate set is not smooth even for a stationary
+        obstacle (wall clearance is grid-quantized, candidates are spaced
+        lateral_candidate_step_m apart) -- confirmed live to swing the
+        selected target by up to ~0.25m tick to tick, and occasionally flip
+        sides outright, which is what continuously feeding into mpcc_node's
+        raceline eventually turned into a real collision. This smooths the
+        selection itself, not just the input obstacle position (which
+        _stabilize_obstacle already does but that wasn't enough)."""
+        now = self.get_clock().now()
+        if self.smoothed_target_lateral is None or self.smoothed_target_time is None:
+            self.smoothed_target_lateral = goal
+            self.smoothed_target_time = now
+            return goal
+        dt = (now - self.smoothed_target_time).nanoseconds * 1.0e-9
+        self.smoothed_target_time = now
+        max_step = self.target_lateral_rate_limit * max(dt, 0.0)
+        delta = clamp(goal - self.smoothed_target_lateral, -max_step, max_step)
+        self.smoothed_target_lateral += delta
+        return self.smoothed_target_lateral
+
     def _build_replanned_points(self, obstacle, ego_lateral):
-        preferred = self._preferred_side(obstacle[4])
-        candidate_sides = [preferred, -preferred]
+        preferred = self._preferred_side(obstacle[4], obstacle[3])
+        if (self.committed_side is not None
+                and abs(ego_lateral) > self.side_lock_ego_offset
+                and preferred != self.committed_side):
+            # Mid-maneuver and meaningfully off centerline: don't even
+            # consider flipping sides, only re-evaluate the committed one.
+            # Flipping while already committed to a lateral offset is a
+            # much sharper, more dangerous correction than flipping from
+            # near-centerline.
+            candidate_sides = [self.committed_side]
+        else:
+            candidate_sides = [preferred, -preferred]
         candidates = []
 
         for side in candidate_sides:
@@ -429,7 +515,14 @@ class LocalAvoidancePlannerNode(Node):
             (score for score, _metrics, side, _points, _target in candidates
              if side < 0.0),
             default=-float('inf'))
-        candidates.sort(key=lambda item: item[0], reverse=True)
+        candidates.sort(
+            key=lambda item: (
+                item[0],
+                item[1]['feasible'],
+                -item[1]['continuity_cost'],
+                1 if self.committed_side is not None
+                and item[2] == self.committed_side else 0),
+            reverse=True)
         feasible_candidates = [
             item for item in candidates if item[1]['feasible']]
         best = feasible_candidates[0] if feasible_candidates else candidates[0]
@@ -458,16 +551,22 @@ class LocalAvoidancePlannerNode(Node):
                     best_metrics['obstacle_margin']),
                 throttle_duration_sec=1.0)
             self.committed_side = None
+            self.smoothed_target_lateral = None
+            self.smoothed_target_time = None
             return np.array(self.path.points, copy=True), 0.0, True
 
+        smoothed_target = self._slew_target_lateral(best_target)
+        smoothed_points, _active_indices, smoothed_target = (
+            self._build_points_for_target(obstacle, smoothed_target))
+
         self.get_logger().info(
-            'avoidance selected %s target_d=%.2f m clearance_req=%.2f m'
+            'avoidance selected %s target_d=%.2f m (goal %.2f m) clearance_req=%.2f m'
             % ('left' if best_side > 0.0 else 'right',
-               best_target, self.obstacle_path_clearance),
+               smoothed_target, best_target, self.obstacle_path_clearance),
             throttle_duration_sec=1.0)
 
         self.committed_side = best_side
-        return best_points, best_side, False
+        return smoothed_points, best_side, False
 
     def _publish_markers(self, active, obstacle=None, side=0.0):
         markers = MarkerArray()
@@ -506,6 +605,57 @@ class LocalAvoidancePlannerNode(Node):
             markers.markers.append(marker)
         self.marker_pub.publish(markers)
 
+    def _commit(self, state, points, side):
+        self.committed_state = state
+        self.committed_points = points
+        self.committed_side_out = side
+        self.pending_label = None
+        self.pending_since = None
+        self.pending_points = None
+
+    def _debounce(self, state, points, side):
+        """Only let the published state/path change after the newly
+        computed candidate wins for state_switch_hold_s straight, instead
+        of on every 8Hz tick -- a single noisy tick (borderline wall/
+        obstacle clearance, a jittery LiDAR cluster) must not flip
+        /planning/replan_state and re-route MPCC."""
+        if self.committed_points is None:
+            self._commit(state, points, side)
+            return self.committed_state, self.committed_points, self.committed_side_out
+
+        if state == self.committed_state:
+            # Only the state *label* is debounced -- geometry stays frozen
+            # at the commit snapshot. Tried refreshing every tick twice
+            # today (once raw, once with _slew_target_lateral rate-
+            # limiting the candidate selection): both caused a real
+            # collision in extended live stress testing (confirmed via
+            # `MPCC disabled: simulator collision reported` + the vehicle
+            # ending up ~170 deg off heading afterward). The rate limiter
+            # reduced how often it happened but did not make it safe.
+            # Freezing at commit is the proven-safe choice -- see docs
+            # worklog 2026-08-18 for both incidents. This does mean a
+            # genuinely moving obstacle won't get a re-shaped avoidance
+            # path mid-maneuver, but there is no obstacle-motion tracking
+            # in this stack at all yet, so that's not a live gap. Do not
+            # re-enable this without first fixing why
+            # _build_replanned_points' argmax is unstable in the first
+            # place (grid-quantized wall clearance, discretized candidate
+            # sweep) rather than just smoothing its output harder.
+            self.pending_label = None
+            self.pending_since = None
+        else:
+            now = self.get_clock().now()
+            if state != self.pending_label:
+                self.pending_label = state
+                self.pending_since = now
+            self.pending_points = points
+            self.pending_side = side
+            elapsed = (now - self.pending_since).nanoseconds * 1.0e-9
+            if elapsed >= self.state_switch_hold:
+                self._commit(state, points, side)
+
+        return self.committed_state, self.committed_points, self.committed_side_out
+
     def publish(self):
         if not self.path.ready:
             return
@@ -526,10 +676,8 @@ class LocalAvoidancePlannerNode(Node):
                 points, side, blocked = self._build_replanned_points(
                     obstacle, ego_lateral)
                 if blocked:
-                    active = True
                     state = 'BLOCKED'
                 else:
-                    active = True
                     if side > 0.0:
                         state = 'LOCAL_AVOIDANCE_LEFT'
                     else:
@@ -537,6 +685,11 @@ class LocalAvoidancePlannerNode(Node):
             else:
                 self.committed_side = None
                 self.filtered_obstacle = None
+                self.smoothed_target_lateral = None
+                self.smoothed_target_time = None
+
+        state, points, side = self._debounce(state, points, side)
+        active = state != 'GLOBAL'
 
         self.path_pub.publish(build_path_msg(self, points, self.path.frame_id))
         self._publish_markers(active, obstacle, side)

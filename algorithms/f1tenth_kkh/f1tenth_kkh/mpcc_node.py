@@ -73,6 +73,8 @@ class MpccNode(Node):
         self.declare_parameter('replan_state_timeout', 0.50)
         self.declare_parameter('avoidance_speed_cap', 1.80)
         self.declare_parameter('blocked_speed_cap', 0.0)
+        self.declare_parameter('avoidance_cap_decel_mps2', 1.50)
+        self.declare_parameter('avoidance_cap_accel_mps2', 0.80)
         self.declare_parameter('drive_topic', '/drive')
         self.declare_parameter('collision_topic', '/ego_racecar/collision')
 
@@ -159,6 +161,10 @@ class MpccNode(Node):
             self.get_parameter('avoidance_speed_cap').value)
         self.blocked_speed_cap = float(
             self.get_parameter('blocked_speed_cap').value)
+        self.avoidance_cap_decel = max(0.01, float(
+            self.get_parameter('avoidance_cap_decel_mps2').value))
+        self.avoidance_cap_accel = max(0.01, float(
+            self.get_parameter('avoidance_cap_accel_mps2').value))
         self.drive_topic = self.get_parameter('drive_topic').value
         self.collision_topic = self.get_parameter('collision_topic').value
 
@@ -283,6 +289,8 @@ class MpccNode(Node):
         self.speed_profile_v = None
         self.last_replan_state_time = None
         self.replan_state = 'GLOBAL'
+        self._ramped_speed_cap = self.max_speed
+        self._last_speed_cap_update = None
         self.detected_obstacles = []  # [(map_x, map_y, raceline_s), ...]
         self.collision = False
         self.raceline = ClosedRaceline(
@@ -427,7 +435,7 @@ class MpccNode(Node):
         changed = (
             not self.raceline.ready
             or len(points) != len(self.raceline.points)
-            or np.max(np.abs(points - self.raceline.points)) > 1e-6
+            or np.max(np.abs(points - self.raceline.points)) > 1e-3
         )
         if changed:
             try:
@@ -445,18 +453,40 @@ class MpccNode(Node):
         self.last_replan_state_time = self.get_clock().now()
 
     def _active_speed_cap(self):
-        cap = self.max_speed
+        target_cap = self.max_speed
         if (self.last_replan_state_time is not None
                 and age_seconds(self.get_clock(), self.last_replan_state_time)
                 <= self.replan_state_timeout
                 and self.replan_state == 'BLOCKED'):
-            cap = min(cap, self.blocked_speed_cap)
+            # BLOCKED is an emergency stop condition, so do not ramp this.
+            self._ramped_speed_cap = min(
+                self.max_speed, self.blocked_speed_cap)
+            self._last_speed_cap_update = self.get_clock().now()
+            return self._ramped_speed_cap
         elif (self.last_replan_state_time is not None
                 and age_seconds(self.get_clock(), self.last_replan_state_time)
                 <= self.replan_state_timeout
                 and self.replan_state.startswith('LOCAL_AVOIDANCE')):
-            cap = min(cap, self.avoidance_speed_cap)
-        return cap
+            target_cap = min(self.max_speed, self.avoidance_speed_cap)
+
+        now = self.get_clock().now()
+        if self._last_speed_cap_update is None:
+            # Keep the current cap on the state transition itself. The next
+            # control tick performs the first bounded ramp step.
+            self._last_speed_cap_update = now
+            return self._ramped_speed_cap
+
+        dt = max(0.0, (now - self._last_speed_cap_update).nanoseconds * 1.0e-9)
+        if target_cap < self._ramped_speed_cap:
+            self._ramped_speed_cap = max(
+                target_cap,
+                self._ramped_speed_cap - self.avoidance_cap_decel * dt)
+        else:
+            self._ramped_speed_cap = min(
+                target_cap,
+                self._ramped_speed_cap + self.avoidance_cap_accel * dt)
+        self._last_speed_cap_update = now
+        return self._ramped_speed_cap
 
     def speed_profile_callback(self, msg):
         data = np.asarray(msg.data, dtype=float)
