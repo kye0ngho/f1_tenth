@@ -55,6 +55,7 @@ def generate_launch_description():
     obstacle_detection_range = LaunchConfiguration('obstacle_detection_range')
     obstacle_interest_horizon = LaunchConfiguration('obstacle_interest_horizon')
     obstacle_lane_offset = LaunchConfiguration('obstacle_lane_offset')
+    use_sim_time = LaunchConfiguration('use_sim_time')
 
     start_localization = PythonExpression([
         "'", localization, "' == 'amcl'"
@@ -125,7 +126,7 @@ def generate_launch_description():
                     {'topic': 'map'},
                     {'frame_id': 'map'},
                     {'output': 'screen'},
-                    {'use_sim_time': False}],
+                    {'use_sim_time': use_sim_time}],
         condition=IfCondition(start_localization)
     )
     amcl_node = Node(
@@ -133,7 +134,7 @@ def generate_launch_description():
         executable='amcl',
         name='amcl',
         output='screen',
-        parameters=[amcl_config],
+        parameters=[amcl_config, {'use_sim_time': use_sim_time}],
         condition=IfCondition(start_localization)
     )
     nav_lifecycle_node = Node(
@@ -141,7 +142,7 @@ def generate_launch_description():
         executable='lifecycle_manager',
         name='lifecycle_manager_localization',
         output='screen',
-        parameters=[{'use_sim_time': False},
+        parameters=[{'use_sim_time': use_sim_time},
                     {'autostart': True},
                     {'node_names': ['map_server', 'amcl']}],
         condition=IfCondition(start_localization)
@@ -243,14 +244,13 @@ def generate_launch_description():
         output='screen',
         parameters=[{
             'global_path_topic': '/planning/global_path',
-            'obstacle_topic': '/planning/detected_obstacles',
+            'scan_topic': obstacle_scan_topic,
             'odom_topic': '/car_state/odom',
             'output_path_topic': '/planning/path',
             'marker_topic': '/planning/local_replan_markers',
             'state_topic': '/planning/replan_state',
             'publish_rate': 8.0,
             'interest_horizon_m': obstacle_interest_horizon,
-            'obstacle_corridor_m': 0.35,
             'lane_offset_m': obstacle_lane_offset,
             'max_lane_offset_m': 0.52,
             'vehicle_width_m': 0.31,
@@ -474,6 +474,11 @@ def generate_launch_description():
         'obstacle_lane_offset',
         default_value='0.22',
         description='Lateral offset used by the local avoidance path.'
+    ))
+    ld.add_action(DeclareLaunchArgument(
+        'use_sim_time',
+        default_value='false',
+        description='Use simulated clock for map_server/amcl/lifecycle_manager.'
     ))
     ld.add_action(rviz_node)
     ld.add_action(bridge_node)

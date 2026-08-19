@@ -149,3 +149,6 @@ results/*_bag/
 *.p12
 # Local reference checkout; do not vendor the full UNICORN stack here.
 unicorn-racing-stack/
+# Local reference checkouts (e.g. CL2-UWaterloo/f1tenth_ws) cloned for
+# porting/inspiration; not vendored into this repo.
+refer/

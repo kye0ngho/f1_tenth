@@ -448,8 +448,23 @@ class MpccNode(Node):
                 % (len(points), self.raceline.length))
         self.last_path_time = self.get_clock().now()
 
+    def _speed_cap_category(self, state):
+        if state == 'BLOCKED':
+            return 'BLOCKED'
+        if state.startswith('LOCAL_AVOIDANCE'):
+            return 'AVOIDANCE'
+        return 'GLOBAL'
+
     def replan_state_callback(self, msg):
-        self.replan_state = str(msg.data)
+        new_state = str(msg.data)
+        previous_category = self._speed_cap_category(self.replan_state)
+        new_category = self._speed_cap_category(new_state)
+        if new_category == 'AVOIDANCE' and previous_category != 'AVOIDANCE':
+            # Hold the current speed cap for exactly the next control tick
+            # instead of ramping immediately -- see _active_speed_cap. Reset
+            # once per avoidance-episode entry, not just at node startup.
+            self._last_speed_cap_update = None
+        self.replan_state = new_state
         self.last_replan_state_time = self.get_clock().now()
 
     def _active_speed_cap(self):

@@ -2,15 +2,19 @@ import math
 
 import numpy as np
 import rclpy
-from geometry_msgs.msg import Point, PoseArray
+import tf2_ros
+from geometry_msgs.msg import Point
 from nav_msgs.msg import OccupancyGrid, Odometry, Path
 from rclpy.node import Node
 from rclpy.qos import (
     QoSDurabilityPolicy, QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy)
+from sensor_msgs.msg import LaserScan
 from std_msgs.msg import String
 from visualization_msgs.msg import Marker, MarkerArray
 
-from planning.path_utils import ClosedPath, build_path_msg, wrap_delta
+from planning.occupancy_grid_utils import LocalOccupancyGrid
+from planning.path_utils import (
+    ClosedPath, build_path_msg, quaternion_to_yaw, wrap_delta)
 
 
 def clamp(value, lo, hi):
@@ -22,16 +26,18 @@ class LocalAvoidancePlannerNode(Node):
         super().__init__('local_avoidance_planner_node')
 
         self.declare_parameter('global_path_topic', '/planning/global_path')
-        self.declare_parameter('obstacle_topic', '/planning/detected_obstacles')
         self.declare_parameter('odom_topic', '/car_state/odom')
         self.declare_parameter('map_topic', '/map')
         self.declare_parameter('output_path_topic', '/planning/path')
         self.declare_parameter('marker_topic', '/planning/local_replan_markers')
         self.declare_parameter('state_topic', '/planning/replan_state')
         self.declare_parameter('publish_rate', 20.0)
+        # 2026-08-19: repurposed from the old cluster-interest-horizon
+        # meaning to the fixed lookahead distance for the live-grid
+        # corridor check / ramp anchor (see _corridor_blocked,
+        # _synthetic_obstacle) -- same param name kept to avoid launch-arg
+        # churn, meaning changed.
         self.declare_parameter('interest_horizon_m', 5.5)
-        self.declare_parameter('obstacle_stale_timeout_s', 0.50)
-        self.declare_parameter('obstacle_corridor_m', 0.55)
         self.declare_parameter('lane_offset_m', 0.32)
         self.declare_parameter('max_lane_offset_m', 0.55)
         self.declare_parameter('vehicle_width_m', 0.31)
@@ -41,12 +47,16 @@ class LocalAvoidancePlannerNode(Node):
         self.declare_parameter('ramp_out_m', 1.60)
         self.declare_parameter('obstacle_half_length_m', 0.35)
         self.declare_parameter('center_deadband_m', 0.05)
-        self.declare_parameter('obstacle_filter_alpha', 0.25)
-        self.declare_parameter('obstacle_update_epsilon_m', 0.08)
-        self.declare_parameter('obstacle_reset_distance_m', 0.80)
         self.declare_parameter('map_clearance_check_radius_m', 0.55)
         self.declare_parameter('min_wall_clearance_m', 0.16)
         self.declare_parameter('obstacle_path_clearance_m', 0.0)
+        self.declare_parameter('scan_topic', '/scan')
+        self.declare_parameter('global_frame_id', 'map')
+        self.declare_parameter('scan_stale_timeout_s', 0.25)
+        self.declare_parameter('scan_obstacle_clearance_m', 0.0)
+        self.declare_parameter('local_grid_resolution_m', 0.05)
+        self.declare_parameter('local_grid_half_width_m', 4.0)
+        self.declare_parameter('lateral_bias_probe_step_m', 0.25)
         self.declare_parameter('side_switch_margin_m', 0.08)
         self.declare_parameter('state_switch_hold_s', 0.30)
         self.declare_parameter('side_lock_ego_offset_m', 0.25)
@@ -62,11 +72,11 @@ class LocalAvoidancePlannerNode(Node):
         self.declare_parameter('default_side', 'right')
 
         self.path = ClosedPath()
+        self.tf_buffer = tf2_ros.Buffer()
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
         self.current_odom = None
-        self.last_obstacle_time = None
-        self.obstacles = []
         self.committed_side = None
-        self.filtered_obstacle = None
+        self._active_grid = None
         self.smoothed_target_lateral = None
         self.smoothed_target_time = None
         self.committed_state = 'GLOBAL'
@@ -82,10 +92,11 @@ class LocalAvoidancePlannerNode(Node):
         self.map_origin_y = 0.0
         self.map_width = 0
         self.map_height = 0
+        self.scan_points_x = None
+        self.scan_points_y = None
+        self.last_scan_time = None
 
         self.interest_horizon = float(self.get_parameter('interest_horizon_m').value)
-        self.obstacle_timeout = float(self.get_parameter('obstacle_stale_timeout_s').value)
-        self.corridor = float(self.get_parameter('obstacle_corridor_m').value)
         self.lane_offset = abs(float(self.get_parameter('lane_offset_m').value))
         self.max_lane_offset = max(
             self.lane_offset,
@@ -98,12 +109,6 @@ class LocalAvoidancePlannerNode(Node):
         self.obstacle_half_length = float(
             self.get_parameter('obstacle_half_length_m').value)
         self.center_deadband = float(self.get_parameter('center_deadband_m').value)
-        self.obstacle_filter_alpha = float(
-            self.get_parameter('obstacle_filter_alpha').value)
-        self.obstacle_update_epsilon = float(
-            self.get_parameter('obstacle_update_epsilon_m').value)
-        self.obstacle_reset_distance = float(
-            self.get_parameter('obstacle_reset_distance_m').value)
         self.clearance_check_radius = float(
             self.get_parameter('map_clearance_check_radius_m').value)
         self.min_wall_clearance = float(
@@ -115,6 +120,27 @@ class LocalAvoidancePlannerNode(Node):
             + self.safety_margin)
         self.obstacle_path_clearance = max(
             configured_clearance, physical_clearance)
+        self.global_frame_id = str(self.get_parameter('global_frame_id').value)
+        self.scan_stale_timeout = float(
+            self.get_parameter('scan_stale_timeout_s').value)
+        configured_scan_clearance = float(
+            self.get_parameter('scan_obstacle_clearance_m').value)
+        self.scan_obstacle_clearance = max(
+            configured_scan_clearance,
+            0.5 * self.vehicle_width + self.safety_margin)
+        self.vehicle_sweep_margin = 0.5 * self.vehicle_width
+        self.local_grid_resolution = max(
+            0.01, float(self.get_parameter('local_grid_resolution_m').value))
+        local_grid_half_width = float(
+            self.get_parameter('local_grid_half_width_m').value)
+        # Grid must reach at least as far as the corridor-check lookahead
+        # plus the ramp-out tail beyond it, since candidate points out
+        # that far still need a valid occupancy answer.
+        self.local_grid_radius = max(
+            local_grid_half_width,
+            self.interest_horizon + self.ramp_out + self.obstacle_half_length)
+        self.lateral_bias_probe_step = float(
+            self.get_parameter('lateral_bias_probe_step_m').value)
         self.side_switch_margin = float(
             self.get_parameter('side_switch_margin_m').value)
         self.state_switch_hold = float(
@@ -154,10 +180,10 @@ class LocalAvoidancePlannerNode(Node):
             Path, self.get_parameter('global_path_topic').value,
             self.global_path_callback, 10)
         self.create_subscription(
-            PoseArray, self.get_parameter('obstacle_topic').value,
-            self.obstacle_callback, 10)
-        self.create_subscription(
             Odometry, self.get_parameter('odom_topic').value, self.odom_callback, 10)
+        self.create_subscription(
+            LaserScan, self.get_parameter('scan_topic').value,
+            self.scan_callback, 10)
 
         self.path_pub = self.create_publisher(
             Path, self.get_parameter('output_path_topic').value, 10)
@@ -185,32 +211,55 @@ class LocalAvoidancePlannerNode(Node):
             return
         self.get_logger().warn('Ignoring invalid global path', throttle_duration_sec=1.0)
 
-    def obstacle_callback(self, msg):
-        self.last_obstacle_time = self.get_clock().now()
-        self.obstacles = [(pose.position.x, pose.position.y) for pose in msg.poses]
-
     def odom_callback(self, msg):
         self.current_odom = msg
 
-    def _obstacles_are_fresh(self):
-        if self.last_obstacle_time is None:
-            return False
-        age = (self.get_clock().now() - self.last_obstacle_time).nanoseconds * 1.0e-9
-        return age <= self.obstacle_timeout
+    def scan_callback(self, msg):
+        try:
+            tf_msg = self.tf_buffer.lookup_transform(
+                self.global_frame_id, msg.header.frame_id, rclpy.time.Time())
+        except Exception as exc:
+            self.get_logger().warn(
+                'local avoidance scan TF lookup failed: %s' % exc,
+                throttle_duration_sec=1.0)
+            return
 
-    def _select_obstacle(self, ego_s):
-        if not self._obstacles_are_fresh():
-            return None
-        candidates = []
-        for obs_x, obs_y in self.obstacles:
-            obs_s, lateral, distance, path_yaw = self.path.nearest(obs_x, obs_y)
-            ds = (obs_s - ego_s) % self.path.length
-            if ds <= self.interest_horizon and distance <= self.corridor:
-                candidates.append((ds, obs_x, obs_y, obs_s, lateral, path_yaw))
-        if not candidates:
-            return None
-        candidates.sort(key=lambda item: (abs(item[4]), item[0]))
-        return candidates[0]
+        t = tf_msg.transform.translation
+        origin_x = float(t.x)
+        origin_y = float(t.y)
+        origin_yaw = quaternion_to_yaw(tf_msg.transform.rotation)
+        range_min = max(float(msg.range_min), 0.05)
+        range_max = float(msg.range_max)
+
+        ranges = np.asarray(msg.ranges, dtype=float)
+        n = len(ranges)
+        angles = float(msg.angle_min) + float(msg.angle_increment) * np.arange(n)
+        valid = np.isfinite(ranges) & (ranges >= range_min) & (ranges < range_max)
+
+        # Cache actual return points in the map frame (not "free until
+        # range_max" beams) and use nearest-point distance in
+        # _point_scan_clearance instead of a single sensor-to-candidate
+        # ray lookup. 2026-08-19 finding: a ray-occlusion check reads a
+        # candidate point as "blocked" whenever ANY closer return shares
+        # its bearing from the sensor's single vantage point -- which
+        # happens routinely near corners, where a nearby wall corner sits
+        # at a similar bearing but shorter range than a candidate point
+        # that is actually perfectly clear in its own neighborhood.
+        # Nearest-point distance is genuinely direction-independent and
+        # doesn't have that blind spot.
+        local_x = ranges[valid] * np.cos(angles[valid])
+        local_y = ranges[valid] * np.sin(angles[valid])
+        cos_yaw = math.cos(origin_yaw)
+        sin_yaw = math.sin(origin_yaw)
+        self.scan_points_x = origin_x + local_x * cos_yaw - local_y * sin_yaw
+        self.scan_points_y = origin_y + local_x * sin_yaw + local_y * cos_yaw
+        self.last_scan_time = self.get_clock().now()
+
+    def _scan_is_fresh(self):
+        if self.scan_points_x is None or self.last_scan_time is None:
+            return False
+        age = (self.get_clock().now() - self.last_scan_time).nanoseconds * 1.0e-9
+        return age <= self.scan_stale_timeout
 
     def _sample_path_pose(self, s_value):
         s_value = s_value % self.path.length
@@ -223,33 +272,96 @@ class LocalAvoidancePlannerNode(Node):
         point = start + max(0.0, min(1.0, fraction)) * (end - start)
         return point, float(self.path.yaw[index])
 
-    def _stabilize_obstacle(self, obstacle):
-        ds, _obs_x, _obs_y, obs_s, lateral, _path_yaw = obstacle
-        if self.filtered_obstacle is None:
-            filtered_s = obs_s
-            filtered_lateral = lateral
-        else:
-            prev_s, prev_lateral = self.filtered_obstacle
-            s_delta = wrap_delta(obs_s, prev_s, self.path.length)
-            lateral_delta = lateral - prev_lateral
-            motion = math.hypot(s_delta, lateral_delta)
-            if abs(s_delta) > self.obstacle_reset_distance:
-                filtered_s = obs_s
-                filtered_lateral = lateral
-            elif motion < self.obstacle_update_epsilon:
-                filtered_s = prev_s
-                filtered_lateral = prev_lateral
-            else:
-                alpha = max(0.0, min(1.0, self.obstacle_filter_alpha))
-                filtered_s = (prev_s + alpha * s_delta) % self.path.length
-                filtered_lateral = prev_lateral + alpha * lateral_delta
+    def _build_local_grid(self, ego_x, ego_y):
+        """Rebuild a fresh map-frame occupancy grid from the current live
+        scan every tick -- no state persists between calls, so nothing
+        here can fragment or drift the way a tracked cluster position did.
+        See occupancy_grid_utils.py (adapted from stanley_avoidance.py,
+        refer/f1tenth_ws/src/stanley_avoidance/stanley_avoidance/
+        stanley_avoidance.py) for the grid/collision-check mechanics."""
+        if not self._scan_is_fresh():
+            return None
+        grid = LocalOccupancyGrid(
+            ego_x, ego_y, self.local_grid_resolution, self.local_grid_radius)
+        # Scan return points already sit ON the obstacle's real surface,
+        # not its center -- inflating by obstacle_radius here as well as
+        # sweeping check_collision by the vehicle's own half-width in
+        # _score_candidate double-counted the obstacle's size (0.415m
+        # required clearance in testing vs. the already-validated 0.235m
+        # from scan_obstacle_clearance/_point_scan_clearance). Only a
+        # small sensor-noise pad belongs on the grid; the vehicle's half-
+        # width margin is added separately by the caller.
+        grid.populate_from_world_points(
+            self.scan_points_x, self.scan_points_y,
+            inflate_radius_m=self.safety_margin)
+        return grid
 
-        self.filtered_obstacle = (filtered_s, filtered_lateral)
-        center, yaw = self._sample_path_pose(filtered_s)
+    def _first_blocked_point(self, ego_s):
+        """Scan forward along the actual (curving) raceline from ego_s out
+        to interest_horizon and return the arc-length of the FIRST point
+        whose live-scan clearance is too tight, or None if the whole
+        corridor out to the horizon is clear.
+
+        2026-08-19 finding (two bugs, both fixed here): a first attempt
+        anchored the ramp at a fixed lookahead point (ego_s +
+        interest_horizon) and used a single straight-line check to it.
+        That straight chord cut across corners and clipped walls the real
+        curving raceline safely avoids, latching the car into BLOCKED at
+        the very first corner. Fixing the straight-line issue alone still
+        left a second, more fundamental problem: a FIXED lookahead point
+        is not the obstacle's actual location, so _build_points_for_target
+        ramped its cosine bulge in around the wrong s -- the real obstacle
+        sat inside the ramp-IN easing zone rather than the full-strength
+        zone, so candidate points near it barely deviated regardless of
+        target_lateral, reading ~0.02m clearance no matter which side or
+        offset was tried. The fix is to find where the corridor actually
+        starts being blocked from LIVE data every tick (still fully
+        stateless -- nothing here persists or is tracked across ticks, so
+        nothing can fragment or drift) and anchor the ramp there instead."""
+        selected = []
+        for index in range(len(self.path.points)):
+            delta = wrap_delta(
+                float(self.path.cumulative[index]), ego_s, self.path.length)
+            if 0.0 <= delta <= self.interest_horizon:
+                selected.append((delta, index))
+        selected.sort(key=lambda item: item[0])
+
+        for _delta, index in selected:
+            point = self.path.points[index]
+            clearance = self._point_scan_clearance(
+                float(point[0]), float(point[1]))
+            if clearance < self.scan_obstacle_clearance:
+                return float(self.path.cumulative[index])
+        return None
+
+    def _lateral_bias_at(self, obstacle_s):
+        """Which side of the raceline has more live-scan clearance at the
+        obstacle's location -- replaces the old cluster's obstacle_lateral
+        as _preferred_side's side-bias heuristic, built directly on the
+        already-validated _point_scan_clearance primitive."""
+        center, yaw = self._sample_path_pose(obstacle_s)
         normal = np.array([-math.sin(yaw), math.cos(yaw)])
-        position = center + normal * filtered_lateral
-        return (ds, float(position[0]), float(position[1]),
-                filtered_s, filtered_lateral, yaw)
+        step = self.lateral_bias_probe_step
+        left_point = center + normal * step
+        right_point = center - normal * step
+        left_clear = self._point_scan_clearance(
+            float(left_point[0]), float(left_point[1]))
+        right_clear = self._point_scan_clearance(
+            float(right_point[0]), float(right_point[1]))
+        return step if left_clear >= right_clear else -step
+
+    def _synthetic_obstacle(self, obstacle_s):
+        """Package the live-detected blocked point into the same 6-tuple
+        shape _select_obstacle used to return, so every downstream
+        consumer (_preferred_side, _build_points_for_target,
+        _score_candidate, _build_replanned_points) keeps working
+        unchanged -- only the producer of this tuple changed. The first
+        element (ds) is never read by any consumer; kept as 0.0 filler
+        for shape compatibility."""
+        center, yaw = self._sample_path_pose(obstacle_s)
+        lateral_bias = self._lateral_bias_at(obstacle_s)
+        return (0.0, float(center[0]), float(center[1]),
+                obstacle_s, lateral_bias, yaw)
 
     def _corner_outside_side(self, obs_s):
         """Side that is on the outside of any corner starting near the
@@ -291,24 +403,79 @@ class LocalAvoidancePlannerNode(Node):
         return value < 0 or value >= 50
 
     def _point_wall_clearance(self, x, y):
+        """Euclidean distance to the nearest occupied cell, not just the
+        Chebyshev ring index. A pure ring-index return snaps to
+        map_resolution-sized steps, so two candidates a few cm apart can
+        get an identical clearance value and the argmax picks between them
+        on noise -- confirmed live to swing the selected target_lateral by
+        up to ~0.25m tick to tick even for a stationary obstacle. Distance
+        to actual cell centers varies continuously with (x, y) instead, so
+        nearby candidates get distinguishable scores. The `- map_resolution`
+        term keeps the return value numerically aligned with the old
+        ring-index formula (they agree when the query point sits exactly
+        on a cell center), so existing tuning of min_wall_clearance_m /
+        wall_clearance_weight still applies."""
         grid = self._world_to_grid(x, y)
         if grid is None:
             return -1.0
         gx, gy = grid
         max_cells = max(1, int(math.ceil(
             self.clearance_check_radius / self.map_resolution)))
+        best_distance = None
         for radius in range(max_cells + 1):
+            if best_distance is not None and (
+                    (radius - 1) * self.map_resolution >= best_distance):
+                break
             x0 = gx - radius
             x1 = gx + radius
             y0 = gy - radius
             y1 = gy + radius
+            ring_cells = []
             for cx in range(x0, x1 + 1):
-                if self._cell_is_occupied(cx, y0) or self._cell_is_occupied(cx, y1):
-                    return max(0.0, (radius - 1) * self.map_resolution)
+                if self._cell_is_occupied(cx, y0):
+                    ring_cells.append((cx, y0))
+                if self._cell_is_occupied(cx, y1):
+                    ring_cells.append((cx, y1))
             for cy in range(y0 + 1, y1):
-                if self._cell_is_occupied(x0, cy) or self._cell_is_occupied(x1, cy):
-                    return max(0.0, (radius - 1) * self.map_resolution)
-        return self.clearance_check_radius
+                if self._cell_is_occupied(x0, cy):
+                    ring_cells.append((x0, cy))
+                if self._cell_is_occupied(x1, cy):
+                    ring_cells.append((x1, cy))
+            for cx, cy in ring_cells:
+                cell_x = self.map_origin_x + (cx + 0.5) * self.map_resolution
+                cell_y = self.map_origin_y + (cy + 0.5) * self.map_resolution
+                dist = math.hypot(cell_x - x, cell_y - y)
+                if best_distance is None or dist < best_distance:
+                    best_distance = dist
+        if best_distance is None:
+            return self.clearance_check_radius
+        return max(0.0, min(
+            self.clearance_check_radius,
+            best_distance - self.map_resolution))
+
+    def _point_scan_clearance(self, x, y):
+        """Distance from map-frame point (x, y) to the nearest CURRENT
+        LaserScan return point -- not any estimated/tracked obstacle
+        position, and not a single sensor-to-point ray lookup either.
+
+        2026-08-19 history: a per-tick tracked obstacle centroid drifts
+        (biased by whichever arc of a small obstacle is visible that
+        frame), so an earlier version of this method replaced it with a
+        single-ray occlusion check (is there a closer return along the
+        exact bearing from the sensor to this point). That version had
+        its own blind spot, caught live at a real corner encounter: a
+        candidate point can be genuinely clear in its own neighborhood
+        but still share a bearing with a nearer wall corner from the
+        sensor's one vantage point, reading as falsely blocked. Nearest-
+        return-point distance is direction-independent -- mirrors
+        _point_wall_clearance's nearest-occupied-cell search, but against
+        live scan returns instead of the static map."""
+        if not self._scan_is_fresh() or len(self.scan_points_x) == 0:
+            return self.scan_obstacle_clearance
+
+        distances = np.hypot(self.scan_points_x - x, self.scan_points_y - y)
+        nearest = float(np.min(distances))
+        return max(0.0, min(self.clearance_check_radius, nearest))
 
     def _candidate_laterals_for_side(self, obstacle_lateral, side):
         min_target = obstacle_lateral + side * self.obstacle_path_clearance
@@ -406,19 +573,34 @@ class LocalAvoidancePlannerNode(Node):
                 'smoothness_cost': float('inf'),
                 'continuity_cost': float('inf'),
             }
-        _ds, obs_x, obs_y, _obs_s, _lateral, _path_yaw = obstacle
+        _ds, _obs_x, _obs_y, _obs_s, _lateral, _path_yaw = obstacle
         min_wall_clearance = self.clearance_check_radius
-        min_obstacle_distance = float('inf')
+        min_scan_clearance = self.clearance_check_radius
+        corridor_clear = True
+        previous_point = None
         for index in active_indices:
             point = points[index]
             wall_clearance = self._point_wall_clearance(
                 float(point[0]), float(point[1]))
             min_wall_clearance = min(min_wall_clearance, wall_clearance)
-            min_obstacle_distance = min(
-                min_obstacle_distance,
-                math.hypot(float(point[0]) - obs_x, float(point[1]) - obs_y))
+            scan_clearance = self._point_scan_clearance(
+                float(point[0]), float(point[1]))
+            min_scan_clearance = min(min_scan_clearance, scan_clearance)
+            # Segment-by-segment against the live grid, not just each
+            # point in isolation -- catches a thin obstacle slipping
+            # between two sparse active_indices samples, which a
+            # per-point-only check could miss.
+            if self._active_grid is not None:
+                if previous_point is not None and corridor_clear:
+                    if self._active_grid.check_collision(
+                            (float(previous_point[0]), float(previous_point[1])),
+                            (float(point[0]), float(point[1])),
+                            margin_m=self.vehicle_sweep_margin):
+                        corridor_clear = False
+                previous_point = point
 
-        obstacle_margin = min_obstacle_distance - self.obstacle_path_clearance
+        min_obstacle_distance = min_scan_clearance
+        obstacle_margin = min_scan_clearance - self.scan_obstacle_clearance
         smoothness_cost = self._smoothness_cost(points, active_indices)
         continuity_cost = 0.0
         if self.smoothed_target_lateral is not None:
@@ -426,7 +608,8 @@ class LocalAvoidancePlannerNode(Node):
                 target_lateral - self.smoothed_target_lateral)
         feasible = (
             obstacle_margin >= 0.0
-            and min_wall_clearance >= self.min_wall_clearance)
+            and min_wall_clearance >= self.min_wall_clearance
+            and corridor_clear)
         if not feasible:
             score = min(obstacle_margin,
                         min_wall_clearance - self.min_wall_clearance)
@@ -463,8 +646,10 @@ class LocalAvoidancePlannerNode(Node):
         selected target by up to ~0.25m tick to tick, and occasionally flip
         sides outright, which is what continuously feeding into mpcc_node's
         raceline eventually turned into a real collision. This smooths the
-        selection itself, not just the input obstacle position (which
-        _stabilize_obstacle already does but that wasn't enough)."""
+        selection itself -- 2026-08-19: the input is now a live grid check
+        with no persistent position to smooth upstream, but the argmax
+        over a discretized candidate set is still not perfectly smooth
+        (map-cell quantization), so this stays as cheap insurance."""
         now = self.get_clock().now()
         if self.smoothed_target_lateral is None or self.smoothed_target_time is None:
             self.smoothed_target_lateral = goal
@@ -555,18 +740,39 @@ class LocalAvoidancePlannerNode(Node):
             self.smoothed_target_time = None
             return np.array(self.path.points, copy=True), 0.0, True
 
+        previous_smoothed = self.smoothed_target_lateral
         smoothed_target = self._slew_target_lateral(best_target)
-        smoothed_points, _active_indices, smoothed_target = (
+        smoothed_points, active_indices, smoothed_target = (
             self._build_points_for_target(obstacle, smoothed_target))
+        smoothed_side = 1.0 if smoothed_target >= 0.0 else -1.0
+
+        # The rate-limited scalar is what actually gets committed (see
+        # _debounce), not best_target/best_side directly -- so the side
+        # label and geometry driving state transitions must be derived
+        # from it too, or the slew limiter only smooths coordinates while
+        # leaving the side flip and commit-time snapshot exposed to raw
+        # argmax noise. A slew step can cross through a point the discrete
+        # candidate sweep never validated (e.g. mid-flip near d=0), so
+        # re-score it and hold at the previous tick's value if it isn't
+        # actually safe rather than advancing into it.
+        smoothed_metrics = self._score_candidate(
+            smoothed_points, active_indices, obstacle, smoothed_target,
+            ego_lateral, smoothed_side)
+        if not smoothed_metrics['feasible'] and previous_smoothed is not None:
+            self.smoothed_target_lateral = previous_smoothed
+            smoothed_target = previous_smoothed
+            smoothed_points, _active_indices, smoothed_target = (
+                self._build_points_for_target(obstacle, smoothed_target))
+            smoothed_side = 1.0 if smoothed_target >= 0.0 else -1.0
 
         self.get_logger().info(
             'avoidance selected %s target_d=%.2f m (goal %.2f m) clearance_req=%.2f m'
-            % ('left' if best_side > 0.0 else 'right',
+            % ('left' if smoothed_side > 0.0 else 'right',
                smoothed_target, best_target, self.obstacle_path_clearance),
             throttle_duration_sec=1.0)
 
-        self.committed_side = best_side
-        return smoothed_points, best_side, False
+        self.committed_side = smoothed_side
+        return smoothed_points, smoothed_side, False
 
     def _publish_markers(self, active, obstacle=None, side=0.0):
         markers = MarkerArray()
@@ -670,9 +876,19 @@ class LocalAvoidancePlannerNode(Node):
             x = self.current_odom.pose.pose.position.x
             y = self.current_odom.pose.pose.position.y
             ego_s, ego_lateral, _dist, _yaw = self.path.nearest(x, y)
-            obstacle = self._select_obstacle(ego_s)
-            if obstacle is not None:
-                obstacle = self._stabilize_obstacle(obstacle)
+            self._active_grid = self._build_local_grid(x, y)
+            obstacle_s = (
+                self._first_blocked_point(ego_s)
+                if self._active_grid is not None else None)
+            if obstacle_s is None:
+                # No fresh scan, or the corridor out to interest_horizon
+                # is clear -- no persistent state to tear down here
+                # (nothing is tracked across ticks any more).
+                self.committed_side = None
+                self.smoothed_target_lateral = None
+                self.smoothed_target_time = None
+            else:
+                obstacle = self._synthetic_obstacle(obstacle_s)
                 points, side, blocked = self._build_replanned_points(
                     obstacle, ego_lateral)
                 if blocked:
@@ -682,11 +898,6 @@ class LocalAvoidancePlannerNode(Node):
                         state = 'LOCAL_AVOIDANCE_LEFT'
                     else:
                         state = 'LOCAL_AVOIDANCE_RIGHT'
-            else:
-                self.committed_side = None
-                self.filtered_obstacle = None
-                self.smoothed_target_lateral = None
-                self.smoothed_target_time = None
 
         state, points, side = self._debounce(state, points, side)
         active = state != 'GLOBAL'
