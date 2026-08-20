@@ -176,9 +176,21 @@ class SpeedProfileNode(Node):
                 self.max_speed / (1.0 + self.corner_slowdown_gain * curvature))
 
         if self.lateral_accel_limit > 0.0:
+            # `out` is the pre-sqrt fallback for near-zero curvature (no
+            # lateral-accel constraint), so it must be max_speed**2, not
+            # max_speed -- filling it with max_speed and then taking sqrt
+            # of the whole array silently caps every straight-line point
+            # at sqrt(max_speed) instead of max_speed. Confirmed live
+            # 2026-08-21: dormant on curvature data that's never exactly
+            # 0.0 (e.g. track02_raceline_safe.csv's real/optimizer-
+            # sourced kappa_radpm column always has residual noise), but
+            # triggered immediately on an analytically-exact synthetic
+            # centerline (generate_synthetic_corridor_map.py's
+            # --output-csv), which suppressed the entire profile to
+            # sqrt(max_speed) m/s even 19.8m into a straight.
             curve_speed = np.sqrt(np.divide(
                 self.lateral_accel_limit, curvature,
-                out=np.full_like(curvature, self.max_speed),
+                out=np.full_like(curvature, self.max_speed ** 2),
                 where=curvature > 1.0e-5))
             allowed = np.minimum(allowed, curve_speed)
 

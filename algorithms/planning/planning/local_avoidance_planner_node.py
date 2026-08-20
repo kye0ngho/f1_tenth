@@ -61,6 +61,10 @@ class LocalAvoidancePlannerNode(Node):
         self.declare_parameter('state_switch_hold_s', 0.30)
         self.declare_parameter('side_lock_ego_offset_m', 0.25)
         self.declare_parameter('target_lateral_rate_limit_mps', 1.50)
+        self.declare_parameter('committed_geometry_refresh_near_s', 0.30)
+        self.declare_parameter('committed_geometry_refresh_far_s', 1.50)
+        self.declare_parameter('committed_geometry_max_step_m', 0.10)
+        self.declare_parameter('committed_geometry_refresh_enabled', True)
         self.declare_parameter('corner_lookahead_m', 2.00)
         self.declare_parameter('corner_curvature_threshold', 0.15)
         self.declare_parameter('lateral_candidate_step_m', 0.05)
@@ -82,6 +86,8 @@ class LocalAvoidancePlannerNode(Node):
         self.committed_state = 'GLOBAL'
         self.committed_points = None
         self.committed_side_out = 0.0
+        self.committed_target_lateral = 0.0
+        self.last_geometry_commit_time = None
         self.pending_label = None
         self.pending_since = None
         self.pending_points = None
@@ -149,6 +155,15 @@ class LocalAvoidancePlannerNode(Node):
             self.get_parameter('side_lock_ego_offset_m').value)
         self.target_lateral_rate_limit = max(
             0.01, float(self.get_parameter('target_lateral_rate_limit_mps').value))
+        self.committed_geometry_refresh_near_s = max(
+            0.0, float(self.get_parameter('committed_geometry_refresh_near_s').value))
+        self.committed_geometry_refresh_far_s = max(
+            self.committed_geometry_refresh_near_s,
+            float(self.get_parameter('committed_geometry_refresh_far_s').value))
+        self.committed_geometry_max_step = max(
+            0.0, float(self.get_parameter('committed_geometry_max_step_m').value))
+        self.committed_geometry_refresh_enabled = bool(
+            self.get_parameter('committed_geometry_refresh_enabled').value)
         self.corner_lookahead = float(
             self.get_parameter('corner_lookahead_m').value)
         self.corner_curvature_threshold = float(
@@ -738,6 +753,20 @@ class LocalAvoidancePlannerNode(Node):
             self.committed_side = None
             self.smoothed_target_lateral = None
             self.smoothed_target_time = None
+            if self.committed_points is not None:
+                # A tight wall/obstacle corridor going momentarily
+                # infeasible does not mean the previously committed
+                # avoidance offset is suddenly unsafe -- snapping straight
+                # back to the raw (unshifted) global path here is itself a
+                # full-width lateral discontinuity in the published path,
+                # which is what a 2026-08-20 live test traced a
+                # pure_pursuit "vehicle too far from path" safety stop
+                # back to (repeated blocked/feasible flapping near a tight
+                # corridor). Hold the last committed geometry instead and
+                # let _debounce's own state-switch hold decide whether
+                # BLOCKED really sticks.
+                return (np.array(self.committed_points, copy=True),
+                        self.committed_side_out, True)
             return np.array(self.path.points, copy=True), 0.0, True
 
         previous_smoothed = self.smoothed_target_lateral
@@ -811,44 +840,90 @@ class LocalAvoidancePlannerNode(Node):
             markers.markers.append(marker)
         self.marker_pub.publish(markers)
 
-    def _commit(self, state, points, side):
+    def _commit(self, state, points, side, target_lateral=None):
         self.committed_state = state
         self.committed_points = points
         self.committed_side_out = side
+        if target_lateral is not None:
+            self.committed_target_lateral = target_lateral
+        self.last_geometry_commit_time = self.get_clock().now()
         self.pending_label = None
         self.pending_since = None
         self.pending_points = None
 
-    def _debounce(self, state, points, side):
-        """Only let the published state/path change after the newly
-        computed candidate wins for state_switch_hold_s straight, instead
-        of on every 8Hz tick -- a single noisy tick (borderline wall/
-        obstacle clearance, a jittery LiDAR cluster) must not flip
-        /planning/replan_state and re-route MPCC."""
+    def _geometry_refresh_interval(self, obstacle_distance_m):
+        if obstacle_distance_m is None:
+            return self.committed_geometry_refresh_far_s
+        span = max(self.interest_horizon - self.ramp_in, 1.0e-6)
+        t = clamp((obstacle_distance_m - self.ramp_in) / span, 0.0, 1.0)
+        return (self.committed_geometry_refresh_near_s
+                + t * (self.committed_geometry_refresh_far_s
+                       - self.committed_geometry_refresh_near_s))
+
+    def _maybe_refresh_geometry(self, state, refresh_context):
+        """Let frozen committed geometry catch up to the live,
+        already-slew-limited self.smoothed_target_lateral periodically
+        instead of never (2026-08-19 16s-stale-freeze collision) and
+        instead of every tick (2026-08-18 full-refresh collisions --
+        driven by a noisy tracked-cluster source that no longer exists
+        now that obstacles come from the live occupancy grid, but not
+        worth re-risking without proof). Two independent bounds: a
+        proximity-scaled interval gate (tighter near the obstacle, where
+        staleness matters most) and a hard per-refresh step cap that is
+        independent of elapsed time, so a long-held freeze cannot turn
+        into one big jump the moment it finally refreshes."""
+        if (not self.committed_geometry_refresh_enabled
+                or state == 'GLOBAL' or refresh_context is None
+                or self.smoothed_target_lateral is None
+                or self.last_geometry_commit_time is None):
+            return
+        obstacle, obstacle_distance_m, ego_lateral = refresh_context
+        now = self.get_clock().now()
+        elapsed = (now - self.last_geometry_commit_time).nanoseconds * 1.0e-9
+        if elapsed < self._geometry_refresh_interval(obstacle_distance_m):
+            return
+
+        delta = self.smoothed_target_lateral - self.committed_target_lateral
+        step = clamp(
+            delta, -self.committed_geometry_max_step,
+            self.committed_geometry_max_step)
+        if abs(step) < 1.0e-6:
+            self.last_geometry_commit_time = now
+            return
+
+        new_target = self.committed_target_lateral + step
+        new_points, active_indices, new_target = (
+            self._build_points_for_target(obstacle, new_target))
+        new_side = 1.0 if new_target >= 0.0 else -1.0
+        # An interpolated refresh step wasn't validated by the discrete
+        # candidate sweep -- re-score and skip this refresh rather than
+        # commit something unsafe (same guard _build_replanned_points
+        # already applies to the slew limiter's own output).
+        metrics = self._score_candidate(
+            new_points, active_indices, obstacle, new_target, ego_lateral,
+            new_side)
+        if not metrics['feasible']:
+            self.last_geometry_commit_time = now
+            return
+        self._commit(state, new_points, new_side, new_target)
+
+    def _debounce(self, state, points, side, refresh_context=None):
+        """Only let the published state/path *label* change after the
+        newly computed candidate wins for state_switch_hold_s straight,
+        instead of on every 8Hz tick -- a single noisy tick (borderline
+        wall/obstacle clearance, a jittery LiDAR cluster) must not flip
+        /planning/replan_state and re-route MPCC. While the label is held,
+        _maybe_refresh_geometry periodically lets the committed geometry
+        catch up to the live target instead of freezing it indefinitely
+        (see its docstring)."""
         if self.committed_points is None:
-            self._commit(state, points, side)
+            self._commit(state, points, side, self.smoothed_target_lateral)
             return self.committed_state, self.committed_points, self.committed_side_out
 
         if state == self.committed_state:
-            # Only the state *label* is debounced -- geometry stays frozen
-            # at the commit snapshot. Tried refreshing every tick twice
-            # today (once raw, once with _slew_target_lateral rate-
-            # limiting the candidate selection): both caused a real
-            # collision in extended live stress testing (confirmed via
-            # `MPCC disabled: simulator collision reported` + the vehicle
-            # ending up ~170 deg off heading afterward). The rate limiter
-            # reduced how often it happened but did not make it safe.
-            # Freezing at commit is the proven-safe choice -- see docs
-            # worklog 2026-08-18 for both incidents. This does mean a
-            # genuinely moving obstacle won't get a re-shaped avoidance
-            # path mid-maneuver, but there is no obstacle-motion tracking
-            # in this stack at all yet, so that's not a live gap. Do not
-            # re-enable this without first fixing why
-            # _build_replanned_points' argmax is unstable in the first
-            # place (grid-quantized wall clearance, discretized candidate
-            # sweep) rather than just smoothing its output harder.
             self.pending_label = None
             self.pending_since = None
+            self._maybe_refresh_geometry(state, refresh_context)
         else:
             now = self.get_clock().now()
             if state != self.pending_label:
@@ -858,7 +933,7 @@ class LocalAvoidancePlannerNode(Node):
             self.pending_side = side
             elapsed = (now - self.pending_since).nanoseconds * 1.0e-9
             if elapsed >= self.state_switch_hold:
-                self._commit(state, points, side)
+                self._commit(state, points, side, self.smoothed_target_lateral)
 
         return self.committed_state, self.committed_points, self.committed_side_out
 
@@ -871,6 +946,7 @@ class LocalAvoidancePlannerNode(Node):
         side = 0.0
         points = self.path.points
         state = 'GLOBAL'
+        refresh_context = None
 
         if self.current_odom is not None:
             x = self.current_odom.pose.pose.position.x
@@ -898,8 +974,11 @@ class LocalAvoidancePlannerNode(Node):
                         state = 'LOCAL_AVOIDANCE_LEFT'
                     else:
                         state = 'LOCAL_AVOIDANCE_RIGHT'
+                obstacle_distance_m = max(
+                    0.0, wrap_delta(obstacle[3], ego_s, self.path.length))
+                refresh_context = (obstacle, obstacle_distance_m, ego_lateral)
 
-        state, points, side = self._debounce(state, points, side)
+        state, points, side = self._debounce(state, points, side, refresh_context)
         active = state != 'GLOBAL'
 
         self.path_pub.publish(build_path_msg(self, points, self.path.frame_id))

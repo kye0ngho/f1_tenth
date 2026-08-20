@@ -7,6 +7,9 @@ pure_pursuit_node:
     base_frame_id: "ego_racecar/base_link"
     odom_topic: "/ego_racecar/odom"
     path_topic: "/planning/path"
+    speed_profile_topic: "/planning/speed_profile"
+    use_speed_profile: true
+    speed_profile_timeout: 2.00
 
     sim_drive_topic: "/drive"
 
@@ -14,18 +17,47 @@ pure_pursuit_node:
     real_servo_topic: "/commands/servo/position"
 
     wheelbase: 0.33
-    lookahead_distance: 0.70
+    lookahead_distance: 1.00
     max_steering_angle: 0.4189
-    max_path_distance: 1.00
+    max_path_distance: 1.50
     max_heading_error: 1.0472  # 60 deg
     search_back_points: 8
     search_forward_points: 30
 
-    # First closed-loop test: deliberately conservative.
-    target_speed: 0.60
-    min_speed: 0.25
-    max_speed: 0.80
+    # 2026-08-21, competition prep: ~8 m/s straights via speed_profile_node's
+    # curvature/accel-limited profile (see gym_bridge_launch.py's
+    # speed_profile_* args); these flat values are only the fallback used
+    # when the profile topic is stale/missing (use_speed_profile:=false or
+    # speed_profile_node not running).
+    target_speed: 7.00
+    min_speed: 1.00
+    max_speed: 8.00
     corner_slowdown_gain: 0.55
+
+    # 2026-08-21: ported from f1tenth_kkh/mpcc_node.py's already-tested
+    # _active_speed_cap defaults -- mpcc's own max_speed is only 1.0 m/s
+    # so avoidance_speed_cap=1.80 was never exercised above that there;
+    # treat as a starting point pending empirical re-tuning at
+    # pure_pursuit's actual (much higher) speed regime.
+    replan_state_topic: "/planning/replan_state"
+    replan_state_timeout: 0.50
+    avoidance_speed_cap: 1.80
+    blocked_speed_cap: 0.0
+    # 2026-08-21: bumped from mpcc's 1.50/0.80 -- confirmed live that at
+    # this node's actual 8.0 m/s max_speed, 0.80 m/s^2 took up to 10s to
+    # recover full speed after any dip, holding the car unnecessarily
+    # slow long after clearing an obstacle. Now comparable to
+    # speed_profile_node's own accel/decel limits.
+    avoidance_cap_decel_mps2: 6.00
+    avoidance_cap_accel_mps2: 5.00
+
+    # Stall/no-progress watchdog -- starting points pending empirical
+    # tuning (a car creeping through a tight avoidance maneuver should
+    # not false-trigger).
+    stall_watchdog_enabled: true
+    stall_speed_threshold_mps: 0.15
+    stall_command_speed_threshold_mps: 0.30
+    stall_timeout_s: 1.00
 
     speed_to_erpm_gain: 3000.0
     speed_to_erpm_offset: 0.0
