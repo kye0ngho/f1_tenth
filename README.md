@@ -2,6 +2,61 @@
 
 실차에서 녹화하고 SLAM Toolbox로 생성한 `track02` 맵을 F1TENTH Gym에 적용한 ROS 2 Humble 자율주행 스택입니다. Docker 기반 시뮬레이터, AMCL 위치 추정, raceline 전역 경로, Pure Pursuit, Linear MPC와 반복 실험 도구를 포함합니다.
 
+
+## 김경호식 Pure 핵심파일
+변경 파일
+
+  ┌──────────────────────────────────────────────────────────────┬──────────────────────────────────────────────────────────────────────────────────────────────┐
+  │                             파일                             │                                             내용                                             │
+  ├──────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ algorithms/control/control/pure_pursuit_node.py              │ 회피 상태 연동 속도 캡, stall(무응답) watchdog, kill-switch(/safety/stop_required) 연동 추가 │
+  ├──────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ algorithms/control/config/params.yaml                        │ pure_pursuit 튜닝값 (lookahead, 속도, 회피 캡 등)                                            │
+  ├──────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ algorithms/f1tenth_bringup/launch/autonomy.launch.py         │ 실차용 launch 진입점                                                                         │
+  ├──────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ algorithms/planning/planning/local_avoidance_planner_node.py │ 장애물 회피 경로 생성 (launch 인자로 튜닝값 노출)                                            │
+  ├──────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ algorithms/planning/planning/speed_profile_node.py           │ 속도 프로파일 계산 — 직선 구간이 sqrt(max_speed)로 잘못 캡되던 버그 수정                     │
+  ├──────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ algorithms/planning/AVOIDANCE_TUNING.md                      │ 각 파라미터가 무엇을 하는지 설명                                                             │
+  └──────────────────────────────────────────────────────────────┴──────────────────────────────────────────────────────────────────────────────────────────────┘
+
+  검증
+
+  scripts/run_stability_trial.py(sim 전용, 이 브랜치엔 미포함)로 track02 + 장애물 있는 상태에서 4분간 2회 연속 무정지·무충돌 확인 (매 회 ~23~24랩). 코너 안전속도 lateral_accel=3.0, 장애물 회피는 급회전 대신 6m 전부터 서서히 트는 방식으로 튜닝.
+
+  사용법
+
+  # 시뮬레이터
+  ros2 launch f1tenth_bringup autonomy.launch.py \
+    drive_mode:=sim \
+    localization_mode:=amcl \
+    auto_enable:=true
+
+  # 실차
+  ros2 launch f1tenth_bringup autonomy.launch.py \
+    drive_mode:=real \
+    localization_mode:=amcl \
+    map_yaml:=/path/to/map.yaml \
+    waypoint_csv:=/path/to/raceline.csv \
+    auto_enable:=false \
+    rviz:=false
+
+  - auto_enable:=false(기본값)면 수동으로 켜야 함:
+  ros2 service call /control/enable std_srvs/srv/SetBool "{data: true}"
+  - 주요 튜닝 인자(전부 algorithms/planning/AVOIDANCE_TUNING.md 참고):
+    - avoidance_ramp_in_m / avoidance_ramp_out_m — 회피 시작/종료 거리
+    - avoidance_target_lateral_rate_limit_mps — 회피 전환 부드러움
+    - obstacle_interest_horizon — 장애물 인식 거리(ramp_in_m과 비슷한 값 유지 필요)
+    - speed_profile_lateral_accel(→ speed_profile_node) — 코너 안전속도
+    - avoidance_speed_cap / blocked_speed_cap — 회피 중 속도 캡
+  - 킬스위치 확인:
+  ros2 topic pub /safety/stop_required std_msgs/msg/Bool "{data: true}"   # 정지
+  ros2 topic pub /safety/stop_required std_msgs/msg/Bool "{data: false}"  # 재개
+
+
+
 ## 구성
 
 ```text
