@@ -4,56 +4,92 @@
 
 
 ## 김경호식 Pure 핵심파일
-변경 파일
+## 김경호식 Pure 핵심파일
 
-  ┌──────────────────────────────────────────────────────────────┬──────────────────────────────────────────────────────────────────────────────────────────────┐
-  │                             파일                             │                                             내용                                             │
-  ├──────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────┤
-  │ algorithms/control/control/pure_pursuit_node.py              │ 회피 상태 연동 속도 캡, stall(무응답) watchdog, kill-switch(/safety/stop_required) 연동 추가 │
-  ├──────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────┤
-  │ algorithms/control/config/params.yaml                        │ pure_pursuit 튜닝값 (lookahead, 속도, 회피 캡 등)                                            │
-  ├──────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────┤
-  │ algorithms/f1tenth_bringup/launch/autonomy.launch.py         │ 실차용 launch 진입점                                                                         │
-  ├──────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────┤
-  │ algorithms/planning/planning/local_avoidance_planner_node.py │ 장애물 회피 경로 생성 (launch 인자로 튜닝값 노출)                                            │
-  ├──────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────┤
-  │ algorithms/planning/planning/speed_profile_node.py           │ 속도 프로파일 계산 — 직선 구간이 sqrt(max_speed)로 잘못 캡되던 버그 수정                     │
-  ├──────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────┤
-  │ algorithms/planning/AVOIDANCE_TUNING.md                      │ 각 파라미터가 무엇을 하는지 설명                                                             │
-  └──────────────────────────────────────────────────────────────┴──────────────────────────────────────────────────────────────────────────────────────────────┘
+### 변경 파일
 
-  검증
+| 파일                                                             | 내용                                                                             |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `algorithms/control/control/pure_pursuit_node.py`              | 회피 상태 연동 속도 캡, stall(무응답) watchdog, kill-switch(`/safety/stop_required`) 연동 추가 |
+| `algorithms/control/config/params.yaml`                        | Pure Pursuit 튜닝값 설정 (`lookahead`, 속도, 회피 캡 등)                                  |
+| `algorithms/f1tenth_bringup/launch/autonomy.launch.py`         | 시뮬레이터/실차 공용 launch 진입점                                                         |
+| `algorithms/planning/planning/local_avoidance_planner_node.py` | 장애물 회피 경로 생성 및 launch 인자를 통한 튜닝값 설정                                            |
+| `algorithms/planning/planning/speed_profile_node.py`           | 속도 프로파일 계산. 직선 구간 속도가 `sqrt(max_speed)`로 잘못 제한되던 버그 수정                         |
+| `algorithms/planning/AVOIDANCE_TUNING.md`                      | 장애물 회피 및 속도 관련 주요 파라미터 설명                                                      |
 
-  scripts/run_stability_trial.py(sim 전용, 이 브랜치엔 미포함)로 track02 + 장애물 있는 상태에서 4분간 2회 연속 무정지·무충돌 확인 (매 회 ~23~24랩). 코너 안전속도 lateral_accel=3.0, 장애물 회피는 급회전 대신 6m 전부터 서서히 트는 방식으로 튜닝.
+### 검증
 
-  사용법
+`scripts/run_stability_trial.py` *(시뮬레이션 전용, 해당 브랜치 미포함)* 를 이용하여 검증.
 
-  # 시뮬레이터
-  ros2 launch f1tenth_bringup autonomy.launch.py \
-    drive_mode:=sim \
-    localization_mode:=amcl \
-    auto_enable:=true
+* `track02` + 장애물 환경
+* **4분 주행 × 2회 연속**
+* **무정지 / 무충돌**
+* 매 회 약 **24 laps**
+* 코너 안전속도: `lateral_accel = 3.0`
+* 장애물 회피: 급격한 조향 대신 **약 6 m 전부터 점진적으로 회피**하도록 튜닝
 
-  # 실차
-  ros2 launch f1tenth_bringup autonomy.launch.py \
-    drive_mode:=real \
-    localization_mode:=amcl \
-    map_yaml:=/path/to/map.yaml \
-    waypoint_csv:=/path/to/raceline.csv \
-    auto_enable:=false \
-    rviz:=false
+---
 
-  - auto_enable:=false(기본값)면 수동으로 켜야 함:
-  ros2 service call /control/enable std_srvs/srv/SetBool "{data: true}"
-  - 주요 튜닝 인자(전부 algorithms/planning/AVOIDANCE_TUNING.md 참고):
-    - avoidance_ramp_in_m / avoidance_ramp_out_m — 회피 시작/종료 거리
-    - avoidance_target_lateral_rate_limit_mps — 회피 전환 부드러움
-    - obstacle_interest_horizon — 장애물 인식 거리(ramp_in_m과 비슷한 값 유지 필요)
-    - speed_profile_lateral_accel(→ speed_profile_node) — 코너 안전속도
-    - avoidance_speed_cap / blocked_speed_cap — 회피 중 속도 캡
-  - 킬스위치 확인:
-  ros2 topic pub /safety/stop_required std_msgs/msg/Bool "{data: true}"   # 정지
-  ros2 topic pub /safety/stop_required std_msgs/msg/Bool "{data: false}"  # 재개
+## 사용법
+
+### 시뮬레이터
+
+```bash
+ros2 launch f1tenth_bringup autonomy.launch.py \
+  drive_mode:=sim \
+  localization_mode:=amcl \
+  auto_enable:=true
+```
+
+### 실차
+
+```bash
+ros2 launch f1tenth_bringup autonomy.launch.py \
+  drive_mode:=real \
+  localization_mode:=amcl \
+  map_yaml:=/path/to/map.yaml \
+  waypoint_csv:=/path/to/raceline.csv \
+  auto_enable:=false \
+  rviz:=false
+```
+
+`auto_enable:=false`가 기본값이므로 실차에서는 확인 후 수동으로 주행을 활성화한다.
+
+```bash
+ros2 service call /control/enable std_srvs/srv/SetBool "{data: true}"
+```
+
+---
+
+## 주요 튜닝 인자
+
+자세한 내용은 `algorithms/planning/AVOIDANCE_TUNING.md` 참고.
+
+| 파라미터                                      | 역할                                                     |
+| ----------------------------------------- | ------------------------------------------------------ |
+| `avoidance_ramp_in_m`                     | 장애물 회피를 시작하는 거리                                        |
+| `avoidance_ramp_out_m`                    | 장애물 통과 후 원래 경로로 복귀하는 거리                                |
+| `avoidance_target_lateral_rate_limit_mps` | 회피 경로로 전환되는 횡방향 변화율 제한. 값이 작을수록 부드럽게 전환                |
+| `obstacle_interest_horizon`               | 회피 대상으로 고려할 장애물 인식 거리. `avoidance_ramp_in_m`과 비슷한 값 권장 |
+| `speed_profile_lateral_accel`             | `speed_profile_node`의 코너 안전속도 결정                       |
+| `avoidance_speed_cap`                     | 장애물 회피 중 최대 속도                                         |
+| `blocked_speed_cap`                       | 경로가 막힌 상태에서의 최대 속도                                     |
+
+---
+
+## Kill Switch 확인
+
+### 정지
+
+```bash
+ros2 topic pub /safety/stop_required std_msgs/msg/Bool "{data: true}"
+```
+
+### 재개
+
+```bash
+ros2 topic pub /safety/stop_required std_msgs/msg/Bool "{data: false}"
+```
 
 
 
