@@ -89,14 +89,20 @@ ros2 lifecycle get /amcl         # active [3] 확인
 
 ```bash
 xhost +si:localuser:root
+docker start f1tenth_gui2_host >/dev/null 2>&1 || true
 docker exec -it -e DISPLAY=$DISPLAY -e ROS_DOMAIN_ID=30 -e ROS_LOCALHOST_ONLY=0 \
-  f1tenth_gym_ros_humble-sim-1 \
+  f1tenth_gui2_host \
   bash -lc '
     source /opt/ros/humble/setup.bash
     source /sim_ws/install/setup.bash
     exec rviz2 -d /sim_ws/install/f1tenth_gym_ros/share/f1tenth_gym_ros/launch/gym_bridge.rviz
   '
 ```
+
+`f1tenth_gui2_host`는 노트북에 이미 떠 있는 RViz 전용 컨테이너입니다
+(`docker ps -a`로 확인). RViz는 `ROS_DOMAIN_ID=30`으로 로봇 네트워크에
+붙어 토픽만 구독하므로, 컨테이너 안에 마운트된 `control`/`planning`
+소스가 이 리포 것인지는 무관합니다 — 순수 시각화 용도입니다.
 
 **2D Pose Estimate**로 실제 차량 위치/방향을 지정합니다 (Terminal 3의
 AMCL이 살아있어야 반영됨). LaserScan(빨간 점)이 지도 벽에 맞는지 확인.
