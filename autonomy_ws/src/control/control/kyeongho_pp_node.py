@@ -4,6 +4,16 @@ Control and watchdog behavior is adapted from the public MIT-licensed
 kye0ngho/f1_tenth ``test`` branch, commit a18a2e5.  Direct VESC output from
 that stack is intentionally replaced by Ackermann ``/auto`` output so the
 vehicle's existing mux and calibrated VESC bridge remain authoritative.
+
+2026-08-22: ported the auto-enable/stall-recovery retry timers added to
+kye0ngho/f1_tenth's control/pure_pursuit_node.py on 2026-08-21 (and that
+day's follow-up fix to the retry bookkeeping) -- this adapter previously
+had no automatic recovery at all, so any stall_watchdog trip or failed
+manual /control/enable permanently stopped the car until a human noticed
+and re-issued the service call. Obstacle-aware speed capping was
+deliberately NOT ported: local_obstacle_planner_node.py already folds
+avoidance into the single speed_limit value this node consumes via
+speed_limit_callback, so a second capping layer here would be redundant.
 """
 
 import math
@@ -27,6 +37,8 @@ class KyeonghoPurePursuitNode(Node):
 
         self.declare_parameter('drive_mode', 'sim')
         self.declare_parameter('enabled', False)
+        self.declare_parameter('auto_enable', False)
+        self.declare_parameter('auto_enable_retry_period', 0.5)
 
         self.declare_parameter('global_frame_id', 'map')
         self.declare_parameter('base_frame_id', 'ego_racecar/base_link')
@@ -67,6 +79,9 @@ class KyeonghoPurePursuitNode(Node):
 
         self.drive_mode = self.get_parameter('drive_mode').value
         self.enabled = bool(self.get_parameter('enabled').value)
+        self.auto_enable = bool(self.get_parameter('auto_enable').value)
+        self.auto_enable_retry_period = max(
+            0.05, float(self.get_parameter('auto_enable_retry_period').value))
 
         self.global_frame_id = self.get_parameter('global_frame_id').value
         self.base_frame_id = self.get_parameter('base_frame_id').value
@@ -127,6 +142,7 @@ class KyeonghoPurePursuitNode(Node):
         self.last_speed_limit_time = None
         self.emergency_stop_active = False
         self.stall_condition_since = None
+        self.disabled_by_stall = False
         self.nearest_index = None
         self.last_status_message = None
         self.last_status_time = None
@@ -151,11 +167,33 @@ class KyeonghoPurePursuitNode(Node):
             SetBool, '/control/enable', self.enable_callback)
         self.timer = self.create_timer(
             1.0 / max(control_rate, 1.0), self.control_loop)
+        self.auto_enable_timer = None
+        if self.auto_enable:
+            self.auto_enable_timer = self.create_timer(
+                self.auto_enable_retry_period, self.auto_enable_tick)
+
+        # Ported 2026-08-22 from control/pure_pursuit_node.py's persistent
+        # stall-recovery watchdog (added 2026-08-21 after a real on-track
+        # stall meant a permanent stop requiring a human to call
+        # /control/enable true -- a DNF risk against Q1/Q2's mission time
+        # limits). Runs for the whole mission regardless of auto_enable (so
+        # it works with this adapter's real-car default of auto_enable:=
+        # false too) and is a strict no-op unless disabled_by_stall is set --
+        # enable_callback only arms it on a FAILED data:true attempt, never
+        # on an explicit data:false human stop, so it can never re-enable a
+        # car a human deliberately stopped. See the 2026-08-22 comment on
+        # enable_callback below for why a naive unconditional clear there
+        # would strand the car with no retry path at all.
+        self.stall_recovery_timer = None
+        if self.stall_watchdog_enabled:
+            self.stall_recovery_timer = self.create_timer(
+                self.auto_enable_retry_period, self.stall_recovery_tick)
 
         self.get_logger().info(
-            'Kyeongho PP adapter ready (enabled=%s, pose=%s -> %s, path=%s, '
-            'drive=%s)' % (
+            'Kyeongho PP adapter ready (enabled=%s, auto_enable=%s, '
+            'pose=%s -> %s, path=%s, drive=%s)' % (
                 self.enabled,
+                self.auto_enable,
                 self.global_frame_id,
                 self.base_frame_id,
                 self.path_topic,
@@ -208,6 +246,7 @@ class KyeonghoPurePursuitNode(Node):
             return False
 
         self.enabled = False
+        self.disabled_by_stall = True
         self.nearest_index = None
         self.publish_stop()
         self.stall_condition_since = None
@@ -217,34 +256,26 @@ class KyeonghoPurePursuitNode(Node):
                 commanded_speed, measured_speed, elapsed))
         return True
 
-    def enable_callback(self, request, response):
-        if not request.data:
-            self.enabled = False
-            self.nearest_index = None
-            self.publish_stop()
-            response.success = True
-            response.message = 'Kyeongho PP stopped'
-            self.get_logger().info(response.message)
-            return response
+    def _try_enable(self):
+        """Run the shared readiness checks and flip self.enabled.
 
+        Shared by the /control/enable service and the auto-enable/
+        stall-recovery timers -- all three need identical readiness checks
+        (path/odom freshness, TF, cross-track/heading error) before
+        flipping self.enabled.
+        """
         problem = self.readiness_problem()
         if problem is not None:
             self.enabled = False
             self.publish_stop()
-            response.success = False
-            response.message = 'Cannot start: ' + problem
-            self.get_logger().error(response.message)
-            return response
+            return False, 'Cannot start: ' + problem
 
         try:
             x, y, yaw = self.lookup_vehicle_pose()
         except TransformException as error:
             self.enabled = False
             self.publish_stop()
-            response.success = False
-            response.message = 'Cannot start: TF unavailable: ' + str(error)
-            self.get_logger().error(response.message)
-            return response
+            return False, 'Cannot start: TF unavailable: ' + str(error)
 
         self.nearest_index = None
         _, path_distance, path_heading = self.nearest_path_state(x, y)
@@ -253,28 +284,73 @@ class KyeonghoPurePursuitNode(Node):
         if path_distance > self.max_path_distance:
             self.enabled = False
             self.publish_stop()
-            response.success = False
-            response.message = (
+            return False, (
                 'Cannot start: vehicle is %.2f m from path (limit %.2f m)'
                 % (path_distance, self.max_path_distance))
-            self.get_logger().error(response.message)
-            return response
         if abs(heading_error) > self.max_heading_error:
             self.enabled = False
             self.publish_stop()
-            response.success = False
-            response.message = (
+            return False, (
                 'Cannot start: heading error is %.1f deg (limit %.1f deg)'
                 % (math.degrees(abs(heading_error)),
                    math.degrees(self.max_heading_error)))
-            self.get_logger().error(response.message)
-            return response
 
         self.enabled = True
-        response.success = True
-        response.message = 'Kyeongho PP enabled'
-        self.get_logger().info(response.message)
+        return True, 'Kyeongho PP enabled'
+
+    def enable_callback(self, request, response):
+        if not request.data:
+            # An explicit human stop wins over the stall-recovery watchdog
+            # unconditionally: clear the flag so stall_recovery_tick can
+            # never re-open a car a human deliberately stopped.
+            self.disabled_by_stall = False
+            self.enabled = False
+            self.nearest_index = None
+            self.publish_stop()
+            response.success = True
+            response.message = 'Kyeongho PP stopped'
+            self.get_logger().info(response.message)
+            return response
+
+        response.success, response.message = self._try_enable()
+        if response.success:
+            self.disabled_by_stall = False
+            self.get_logger().info(response.message)
+        else:
+            # 2026-08-22: a FAILED start attempt is not the same as a human
+            # deliberately stopping the car (e.g. a heading-error deadlock
+            # after a spin -- confirmed live in the sim controller this was
+            # ported from). Clearing disabled_by_stall unconditionally here
+            # would leave zero active retry path once auto_enable_timer (if
+            # any) has already self-cancelled after its first success,
+            # permanently stranding the car until another manual call
+            # happens to succeed on its own. Arm disabled_by_stall instead
+            # so stall_recovery_tick keeps retrying automatically -- e.g.
+            # once a human physically corrects the heading by hand.
+            self.disabled_by_stall = True
+            self.get_logger().error(response.message)
         return response
+
+    def auto_enable_tick(self):
+        if self.enabled:
+            self.auto_enable_timer.cancel()
+            return
+        success, message = self._try_enable()
+        if success:
+            self.get_logger().info('Auto-enable: ' + message)
+            self.auto_enable_timer.cancel()
+        else:
+            self.warn_throttled('Auto-enable waiting: ' + message)
+
+    def stall_recovery_tick(self):
+        if not self.disabled_by_stall or self.enabled:
+            return
+        success, message = self._try_enable()
+        if success:
+            self.get_logger().info('Stall recovery: ' + message)
+            self.disabled_by_stall = False
+        else:
+            self.warn_throttled('Stall recovery waiting: ' + message)
 
     @staticmethod
     def quaternion_to_yaw(q):
