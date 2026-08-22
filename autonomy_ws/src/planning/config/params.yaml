@@ -82,6 +82,13 @@ local_obstacle_planner_node:
     # 0.17 m vehicle lateral radius + 0.02 m wall margin.
     map_clearance: 0.18
     vehicle_clearance_radius: 0.17
+    # Extra map clearance (beyond the bare footprint fit already required by
+    # map_clearance) at which full speed is allowed on the currently
+    # commanded path; below it, /planning/speed_limit tapers toward
+    # minimum_avoidance_speed. Guards against the controller's own
+    # real-world tracking error clipping a wall in a narrow-but-nominally-
+    # clear corridor, independent of curvature or active avoidance.
+    corridor_speed_margin: 0.20
     vehicle_length: 0.58
     vehicle_width: 0.31
     # Ackermann geometric feasibility: kappa <= tan(delta_max) / wheelbase.

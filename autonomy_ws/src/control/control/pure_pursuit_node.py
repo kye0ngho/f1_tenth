@@ -81,6 +81,23 @@ class PurePursuitNode(Node):
         self.declare_parameter('speed_limit_timeout', 0.50)
         self.declare_parameter('max_steering_rate', 3.2)
 
+        # Self-contained stall/no-progress watchdog: commanding a meaningful
+        # speed but not actually moving (e.g. wedged against an obstacle)
+        # previously had no mitigation -- the car would keep commanding
+        # torque indefinitely and a human had to notice and call
+        # /control/enable false. Ported from kye0ngho/f1_tenth's
+        # pure_pursuit_node.py, which found this live on real hardware.
+        # Unlike that version we don't need a separate
+        # external_safety_stop_active guard: our control_loop already
+        # returns before reaching compute_speed/_check_stall whenever
+        # emergency_stop or kill_switch_engaged is set, so a legitimate
+        # external stop can never be misread as a stall here.
+        self.declare_parameter('stall_watchdog_enabled', True)
+        self.declare_parameter('stall_speed_threshold_mps', 0.15)
+        self.declare_parameter('stall_command_speed_threshold_mps', 0.30)
+        self.declare_parameter('stall_timeout_s', 1.00)
+        self.declare_parameter('stall_recovery_period', 0.50)
+
         self.declare_parameter('control_rate', 30.0)
         self.declare_parameter('odom_timeout', 0.50)
         self.declare_parameter('path_timeout', 2.00)
@@ -146,6 +163,17 @@ class PurePursuitNode(Node):
         self.max_steering_rate = float(
             self.get_parameter('max_steering_rate').value)
 
+        self.stall_watchdog_enabled = bool(
+            self.get_parameter('stall_watchdog_enabled').value)
+        self.stall_speed_threshold = float(
+            self.get_parameter('stall_speed_threshold_mps').value)
+        self.stall_command_speed_threshold = float(
+            self.get_parameter('stall_command_speed_threshold_mps').value)
+        self.stall_timeout = float(
+            self.get_parameter('stall_timeout_s').value)
+        self.stall_recovery_period = float(
+            self.get_parameter('stall_recovery_period').value)
+
         self.odom_timeout = float(self.get_parameter('odom_timeout').value)
         self.path_timeout = float(self.get_parameter('path_timeout').value)
         control_rate = float(self.get_parameter('control_rate').value)
@@ -174,6 +202,17 @@ class PurePursuitNode(Node):
             raise RuntimeError('curvature_sample_distance must be positive')
         if self.curvature_floor < 0.0:
             raise RuntimeError('curvature_floor must be non-negative')
+        if self.stall_speed_threshold < 0.0:
+            raise RuntimeError(
+                'stall_speed_threshold_mps must be non-negative')
+        if self.stall_command_speed_threshold < self.stall_speed_threshold:
+            raise RuntimeError(
+                'stall_command_speed_threshold_mps must be >= '
+                'stall_speed_threshold_mps')
+        if self.stall_timeout <= 0.0:
+            raise RuntimeError('stall_timeout_s must be positive')
+        if self.stall_recovery_period <= 0.0:
+            raise RuntimeError('stall_recovery_period must be positive')
 
         self.current_odom = None
         self.current_path = None
@@ -194,6 +233,8 @@ class PurePursuitNode(Node):
         self.control_dt = 1.0 / max(control_rate, 1.0)
         self.last_status_message = None
         self.last_status_time = None
+        self.stall_condition_since = None
+        self.disabled_by_stall = False
 
         self.tf_buffer = Buffer(cache_time=Duration(seconds=5.0))
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -222,6 +263,15 @@ class PurePursuitNode(Node):
             SetBool, '/control/enable', self.enable_callback)
         self.timer = self.create_timer(
             1.0 / max(control_rate, 1.0), self.control_loop)
+        # Mission-long retry, not a one-shot startup gate: keeps retrying
+        # _try_enable() after a stall-watchdog disable (or a failed
+        # /control/enable) so a wedged/off-path car can self-heal once the
+        # obstruction clears, instead of staying stopped until a human
+        # notices and re-enables it by hand.
+        self.stall_recovery_timer = None
+        if self.stall_watchdog_enabled:
+            self.stall_recovery_timer = self.create_timer(
+                self.stall_recovery_period, self.stall_recovery_tick)
 
         self.get_logger().info(
             'Pure Pursuit ready (enabled=%s, pose=%s -> %s, path=%s, '
@@ -324,6 +374,10 @@ class PurePursuitNode(Node):
 
     def enable_callback(self, request, response):
         if not request.data:
+            # An explicit human stop wins over the stall-recovery watchdog
+            # unconditionally: clear the flag so stall_recovery_tick can
+            # never re-open a car a human deliberately stopped.
+            self.disabled_by_stall = False
             self.enabled = False
             self.nearest_index = None
             self.previous_steering = 0.0
@@ -334,38 +388,44 @@ class PurePursuitNode(Node):
             self.get_logger().info(response.message)
             return response
 
+        response.success, response.message = self._try_enable()
+        if response.success:
+            self.disabled_by_stall = False
+            self.get_logger().info(response.message)
+        else:
+            # A failed start is not the same as a human deliberately
+            # stopping the car (e.g. a heading-error deadlock that would
+            # self-heal once the car drifts back onto the path). Arm
+            # disabled_by_stall so stall_recovery_tick keeps retrying
+            # instead of leaving the car permanently stranded.
+            self.disabled_by_stall = True
+            self.get_logger().error(response.message)
+        return response
+
+    def _try_enable(self):
+        """Shared readiness check for /control/enable and the stall-recovery
+        timer: path/odom freshness, safety flags, TF, cross-track/heading
+        error."""
         problem = self.readiness_problem()
         if problem is not None:
             self.enabled = False
             self.publish_stop()
-            response.success = False
-            response.message = 'Cannot start: ' + problem
-            self.get_logger().error(response.message)
-            return response
+            return False, 'Cannot start: ' + problem
         if self.emergency_stop:
             self.enabled = False
             self.publish_stop()
-            response.success = False
-            response.message = 'Cannot start: emergency stop is active'
-            self.get_logger().error(response.message)
-            return response
+            return False, 'Cannot start: emergency stop is active'
         if self.kill_switch_engaged:
             self.enabled = False
             self.publish_stop()
-            response.success = False
-            response.message = 'Cannot start: kill switch is engaged'
-            self.get_logger().error(response.message)
-            return response
+            return False, 'Cannot start: kill switch is engaged'
 
         try:
             x, y, yaw = self.lookup_vehicle_pose()
         except TransformException as error:
             self.enabled = False
             self.publish_stop()
-            response.success = False
-            response.message = 'Cannot start: TF unavailable: ' + str(error)
-            self.get_logger().error(response.message)
-            return response
+            return False, 'Cannot start: TF unavailable: ' + str(error)
 
         self.nearest_index = None
         _, path_distance, path_heading = self.nearest_path_state(x, y)
@@ -374,30 +434,60 @@ class PurePursuitNode(Node):
         if path_distance > self.max_path_distance:
             self.enabled = False
             self.publish_stop()
-            response.success = False
-            response.message = (
+            return False, (
                 'Cannot start: vehicle is %.2f m from path (limit %.2f m)'
                 % (path_distance, self.max_path_distance))
-            self.get_logger().error(response.message)
-            return response
         if abs(heading_error) > self.max_heading_error:
             self.enabled = False
             self.publish_stop()
-            response.success = False
-            response.message = (
+            return False, (
                 'Cannot start: heading error is %.1f deg (limit %.1f deg)'
                 % (math.degrees(abs(heading_error)),
                    math.degrees(self.max_heading_error)))
-            self.get_logger().error(response.message)
-            return response
 
         self.enabled = True
         self.previous_steering = 0.0
         self.previous_speed_command = self.measured_speed()
-        response.success = True
-        response.message = 'Pure Pursuit enabled'
-        self.get_logger().info(response.message)
-        return response
+        return True, 'Pure Pursuit enabled'
+
+    def stall_recovery_tick(self):
+        if not self.disabled_by_stall or self.enabled:
+            return
+        success, message = self._try_enable()
+        if success:
+            self.get_logger().info('Stall recovery: ' + message)
+            self.disabled_by_stall = False
+        else:
+            self.warn_throttled('Stall recovery waiting: ' + message)
+
+    def _check_stall(self, commanded_speed):
+        """Auto-disable when commanding a meaningful speed but not actually
+        moving (e.g. wedged against an obstacle), instead of continuing to
+        command torque indefinitely. control_loop only reaches this after
+        the emergency_stop/kill_switch early returns, so a legitimate
+        external stop can't be misread as a stall here."""
+        measured_speed = self.measured_speed()
+        stalled = (commanded_speed >= self.stall_command_speed_threshold
+                   and measured_speed < self.stall_speed_threshold)
+        if not stalled:
+            self.stall_condition_since = None
+            return
+        now = self.get_clock().now()
+        if self.stall_condition_since is None:
+            self.stall_condition_since = now
+            return
+        elapsed = (now - self.stall_condition_since).nanoseconds * 1e-9
+        if elapsed >= self.stall_timeout:
+            self.get_logger().error(
+                'Stall watchdog: commanding %.2f m/s but measured %.2f m/s '
+                'for %.2fs -- auto-disabling (same effect as '
+                '/control/enable false)'
+                % (commanded_speed, measured_speed, elapsed))
+            self.enabled = False
+            self.disabled_by_stall = True
+            self.nearest_index = None
+            self.publish_stop()
+            self.stall_condition_since = None
 
     @staticmethod
     def quaternion_to_yaw(q):
@@ -607,8 +697,12 @@ class PurePursuitNode(Node):
             1.0 - self.corner_slowdown_gain * steer_ratio)
         speed = min(speed, self.curvature_speed_limit(steering))
         speed = self.clamp(speed, self.min_speed, self.max_speed)
-        if (self.avoidance_active
-                and self.use_dynamic_speed_limit
+        # /planning/speed_limit is published every planning tick (not just
+        # while avoiding) -- it also carries the corridor-width wall-
+        # clearance cap for a plain GLOBAL-path straight, so this must not
+        # be gated on avoidance_active or that cap would be silently
+        # ignored exactly when it matters.
+        if (self.use_dynamic_speed_limit
                 and self.dynamic_speed_limit is not None
                 and self.age_seconds(self.last_speed_limit_time)
                 <= self.speed_limit_timeout):
@@ -654,21 +748,25 @@ class PurePursuitNode(Node):
     def control_loop(self):
         if not self.enabled:
             self.publish_stop()
+            self.stall_condition_since = None
             return
 
         if self.emergency_stop:
             self.publish_stop()
+            self.stall_condition_since = None
             self.warn_throttled('Safety stop: emergency stop is active')
             return
 
         if self.kill_switch_engaged:
             self.publish_stop()
+            self.stall_condition_since = None
             self.warn_throttled('Safety stop: kill switch is engaged')
             return
 
         problem = self.readiness_problem()
         if problem is not None:
             self.publish_stop()
+            self.stall_condition_since = None
             self.warn_throttled('Safety stop: ' + problem)
             return
 
@@ -676,12 +774,14 @@ class PurePursuitNode(Node):
             x, y, yaw = self.lookup_vehicle_pose()
         except TransformException as error:
             self.publish_stop()
+            self.stall_condition_since = None
             self.warn_throttled('Safety stop: TF unavailable: ' + str(error))
             return
 
         lookahead = self.find_lookahead_point(x, y, yaw)
         if lookahead is None:
             self.publish_stop()
+            self.stall_condition_since = None
             self.warn_throttled(
                 'Safety stop: no valid lookahead point or vehicle too far from path')
             return
@@ -689,7 +789,12 @@ class PurePursuitNode(Node):
         x_car, y_car, lookahead_dist, _ = lookahead
         steering = self.rate_limit_steering(
             self.compute_steering(x_car, y_car, lookahead_dist))
-        self.publish_drive(self.compute_speed(steering), steering)
+        commanded_speed = self.compute_speed(steering)
+        if self.stall_watchdog_enabled:
+            self._check_stall(commanded_speed)
+            if not self.enabled:
+                return
+        self.publish_drive(commanded_speed, steering)
 
 
 def main(args=None):

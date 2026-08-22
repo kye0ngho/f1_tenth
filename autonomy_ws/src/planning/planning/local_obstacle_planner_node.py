@@ -103,6 +103,18 @@ class LocalObstaclePlannerNode(Node):
         self.declare_parameter('path_sample_spacing', 0.04)
         self.declare_parameter('map_clearance', 0.19)
         self.declare_parameter('vehicle_clearance_radius', 0.17)
+        # candidate_is_safe() only rejects the *nominal* global path outright
+        # once its footprint sweep violates map_clearance -- it assumes zero
+        # tracking error. A narrow-but-nominally-clear corridor can still be
+        # hit by the controller's own real-world cross-track error (ported
+        # from kye0ngho/f1_tenth's speed_profile_node.py, which found a
+        # synthetic 1m-wide-corridor straight-line collision this way: zero
+        # curvature so no cornering slowdown applied, and avoidance never
+        # triggered since replan_state stayed GLOBAL). corridor_speed_margin
+        # is the *extra* map clearance (beyond the bare footprint fit already
+        # required by map_clearance) at which full speed is allowed; below it,
+        # speed tapers linearly toward minimum_avoidance_speed.
+        self.declare_parameter('corridor_speed_margin', 0.20)
         self.declare_parameter('vehicle_length', 0.58)
         self.declare_parameter('vehicle_width', 0.31)
         self.declare_parameter('wheelbase', 0.33)
@@ -204,6 +216,10 @@ class LocalObstaclePlannerNode(Node):
             self.get_parameter('map_clearance').value)
         self.vehicle_clearance = float(
             self.get_parameter('vehicle_clearance_radius').value)
+        self.corridor_speed_margin = float(
+            self.get_parameter('corridor_speed_margin').value)
+        if self.corridor_speed_margin < 0.0:
+            raise RuntimeError('corridor_speed_margin must be non-negative')
         self.vehicle_length = float(
             self.get_parameter('vehicle_length').value)
         self.vehicle_width = float(
@@ -1200,6 +1216,34 @@ class LocalObstaclePlannerNode(Node):
         self.stop_pub.publish(stop)
         self.avoidance_pub.publish(avoidance)
         speed_limit = self.maximum_planning_speed
+        # Corridor-width speed cap: candidate_is_safe() only rejects the
+        # nominal path outright once it violates map_clearance -- it does
+        # not account for the controller's own tracking error, which can
+        # still clip a wall in a narrow-but-nominally-clear corridor. Taper
+        # continuously with the same wall-clearance measurement instead of
+        # leaving speed uncapped until avoidance or the AEB stop above
+        # trips. Applies unconditionally (not just while avoidance.data),
+        # since the failure mode this guards is a plain GLOBAL-path straight.
+        if self.corridor_speed_margin > 0.0:
+            corridor_window = sample_path_window(
+                commanded_path, self.path_geometry, vehicle_s,
+                max(planning_horizon, self.vehicle_length),
+                self.sample_spacing)
+            corridor_footprint = swept_rectangle_samples(
+                corridor_window, self.vehicle_length, self.vehicle_width,
+                self.candidate_clearance_buffer)
+            corridor_wall_margin = max(
+                0.0, self.map_clearance - self.vehicle_clearance)
+            corridor_extra_clearance = (
+                float(np.min(self.map_clearances(corridor_footprint)))
+                - corridor_wall_margin)
+            if corridor_extra_clearance < self.corridor_speed_margin:
+                ratio = (
+                    max(0.0, corridor_extra_clearance)
+                    / self.corridor_speed_margin)
+                speed_limit = min(speed_limit, max(
+                    self.minimum_avoidance_speed,
+                    self.maximum_planning_speed * ratio))
         if avoidance.data:
             selected_curvature = self.candidate_curvature(
                 selected, vehicle_s, planning_horizon)

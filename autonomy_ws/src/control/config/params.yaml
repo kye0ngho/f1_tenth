@@ -51,6 +51,16 @@ pure_pursuit_node:
     speed_limit_timeout: 0.50
     max_steering_rate: 3.2
 
+    # Auto-disable if commanding a meaningful speed but not actually moving
+    # (e.g. wedged against an obstacle), and auto-retry /control/enable
+    # while stalled. Ported from kye0ngho/f1_tenth's pure_pursuit_node.py,
+    # which found this live on real hardware.
+    stall_watchdog_enabled: true
+    stall_speed_threshold_mps: 0.15
+    stall_command_speed_threshold_mps: 0.30
+    stall_timeout_s: 1.00
+    stall_recovery_period: 0.50
+
     control_rate: 30.0
     odom_timeout: 0.50
     path_timeout: 2.00

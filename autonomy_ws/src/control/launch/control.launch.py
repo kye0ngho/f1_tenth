@@ -244,9 +244,10 @@ def _launch_setup(context):
         # UNICORN builds a spatial speed profile from every received path.  The
         # local planner still owns AEB, but must not impose one scalar speed on
         # an entire avoidance manoeuvre.
-        # The local planner publishes a_y = v^2*kappa based limits only while
-        # an avoidance path is active. This preserves straight-line speed and
-        # prevents a high top-speed request from overrunning a tight detour.
+        # The local planner's /planning/speed_limit carries a_y = v^2*kappa
+        # avoidance limits, the corridor-width wall-clearance cap (applies on
+        # a plain GLOBAL-path straight too, not just while avoiding), and the
+        # AEB stop -- keep this on so none of those get silently ignored.
         use_dynamic_speed_limit = True
         profile_name = LaunchConfiguration('mpc_profile').perform(context)
         requested_speed = _parse_dynamic_speed(profile_name, maximum_speed)

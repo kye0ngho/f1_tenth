@@ -100,7 +100,11 @@ class UnicornL1Node(Node):
             'avoidance_active_topic', '/planning/avoidance_active')
         self.declare_parameter('speed_limit_topic', '/planning/speed_limit')
         self.declare_parameter('speed_limit_timeout', 0.50)
-        self.declare_parameter('use_dynamic_speed_limit', False)
+        # /planning/speed_limit is published every planning tick (not just
+        # while avoiding) -- it also carries the corridor-width wall-
+        # clearance cap for a plain GLOBAL-path straight, so this defaults
+        # on to match pure_pursuit_node's default.
+        self.declare_parameter('use_dynamic_speed_limit', True)
         self.declare_parameter('wheelbase', 0.33)
         self.declare_parameter('control_rate', 50.0)
         self.declare_parameter('target_speed', 1.0)
@@ -175,6 +179,14 @@ class UnicornL1Node(Node):
         self.declare_parameter('heading_filter_alpha', 0.10)
         self.declare_parameter('heading_gain_speed', 15.0)
         self.declare_parameter('heading_slowdown_threshold_deg', 10.0)
+        # UNICORN's validated race config (stack_master/config/controller.yaml)
+        # linearly cuts steering authority up to steer_downscale_factor
+        # between start_scale_speed and end_scale_speed as a high-speed
+        # stability margin; our port previously had no equivalent. Defaults
+        # match their tuned values.
+        self.declare_parameter('start_scale_speed', 6.5)
+        self.declare_parameter('end_scale_speed', 10.0)
+        self.declare_parameter('steer_downscale_factor', 0.5)
 
         self.declare_parameter('max_path_distance', 0.80)
         self.declare_parameter('max_heading_error', 1.0472)
@@ -209,7 +221,10 @@ class UnicornL1Node(Node):
                 'lat_err_coeff', 'speed_factor_for_lat_err',
                 'speed_factor_for_curvature', 'heading_kp', 'heading_kd',
                 'heading_filter_alpha', 'heading_gain_speed',
-                'heading_slowdown_threshold_deg', 'max_path_distance',
+                'heading_slowdown_threshold_deg',
+                'start_scale_speed', 'end_scale_speed',
+                'steer_downscale_factor',
+                'max_path_distance',
                 'max_heading_error', 'odom_timeout', 'path_timeout',
                 'speed_limit_timeout'):
             setattr(self, name, float(self.get_parameter(name).value))
@@ -247,6 +262,12 @@ class UnicornL1Node(Node):
         if self.max_lateral_error_steer_gain < 1.0:
             raise RuntimeError(
                 'max_lateral_error_steer_gain must be >= 1.0')
+        if self.end_scale_speed < self.start_scale_speed:
+            raise RuntimeError(
+                'end_scale_speed must be >= start_scale_speed')
+        if not 0.0 <= self.steer_downscale_factor <= 1.0:
+            raise RuntimeError(
+                'steer_downscale_factor must be between 0 and 1')
         self.current_odom = None
         self.last_odom_time = None
         self.last_path_time = None
@@ -628,14 +649,17 @@ class UnicornL1Node(Node):
         if command_speed > 0.0:
             command_speed = max(command_speed, self.min_command_speed)
         if self.avoidance_active:
-            avoidance_limit = self.avoidance_speed_limit
-            if (self.use_dynamic_speed_limit
-                    and self.dynamic_speed_limit is not None
-                    and self.age_seconds(self.last_speed_limit_time)
-                    <= self.speed_limit_timeout):
-                avoidance_limit = min(
-                    avoidance_limit, self.dynamic_speed_limit)
-            command_speed = min(command_speed, avoidance_limit)
+            command_speed = min(command_speed, self.avoidance_speed_limit)
+        # Unlike avoidance_speed_limit above, this is not avoidance-only:
+        # /planning/speed_limit also carries the corridor-width wall-
+        # clearance cap for a plain GLOBAL-path straight, so it must apply
+        # regardless of avoidance_active or that cap would be silently
+        # ignored exactly when it matters.
+        if (self.use_dynamic_speed_limit
+                and self.dynamic_speed_limit is not None
+                and self.age_seconds(self.last_speed_limit_time)
+                <= self.speed_limit_timeout):
+            command_speed = min(command_speed, self.dynamic_speed_limit)
 
         if speed < 2.0:
             speed_for_l1 = self.clamp(
@@ -715,11 +739,24 @@ class UnicornL1Node(Node):
         steering *= min(
             math.exp(math.log(2.0) * abs(future_lateral_error)),
             self.max_lateral_error_steer_gain)
+        steering *= self.speed_steer_scaling(speed)
         steering = self.limit_steering(steering)
 
         return command_speed, steering, (
             future_x, future_y, target_x, target_y, l1_distance,
             mean_curvature, distance)
+
+    def speed_steer_scaling(self, speed):
+        """Linearly cut steering authority at high speed (UNICORN's tuned
+        stability margin: up to steer_downscale_factor between
+        start_scale_speed and end_scale_speed)."""
+        if speed <= self.start_scale_speed:
+            return 1.0
+        if speed >= self.end_scale_speed:
+            return 1.0 - self.steer_downscale_factor
+        span = self.end_scale_speed - self.start_scale_speed
+        fraction = (speed - self.start_scale_speed) / span
+        return 1.0 - self.steer_downscale_factor * fraction
 
     def limit_steering(self, steering):
         """Apply frequency-independent steering slew and angle limits."""
