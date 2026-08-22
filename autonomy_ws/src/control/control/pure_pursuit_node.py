@@ -48,6 +48,16 @@ class PurePursuitNode(Node):
         self.declare_parameter('minimum_lookahead_distance', 0.55)
         self.declare_parameter('maximum_lookahead_distance', 4.00)
         self.declare_parameter('maximum_preview_heading', 0.70)
+        # How far ahead of nearest_index to look for the sharpest upcoming
+        # curvature. A single point's curvature (path_curvatures[nearest_index])
+        # releases the moment nearest_index crosses a corner apex into the
+        # following straight, even though the lookahead point can still land
+        # inside the bend -- the cap vanishes early, lookahead snaps back
+        # toward maximum_lookahead_distance, and the car aims past the rest of
+        # the turn and runs wide out of the corner. Mirrors
+        # unicorn_l1_node.py's l1_curvature_preview_distance, which exists for
+        # the same failure mode there.
+        self.declare_parameter('curvature_preview_distance', 3.00)
         self.declare_parameter('max_steering_angle', 0.4189)
         self.declare_parameter('max_path_distance', 1.00)
         self.declare_parameter('max_heading_error', 1.0472)
@@ -101,6 +111,8 @@ class PurePursuitNode(Node):
             'maximum_lookahead_distance').value)
         self.maximum_preview_heading = float(self.get_parameter(
             'maximum_preview_heading').value)
+        self.curvature_preview_distance = float(self.get_parameter(
+            'curvature_preview_distance').value)
         self.max_steering_angle = float(
             self.get_parameter('max_steering_angle').value)
         self.max_path_distance = float(
@@ -148,6 +160,8 @@ class PurePursuitNode(Node):
             raise RuntimeError('lookahead_time must be non-negative')
         if self.maximum_preview_heading <= 0.0:
             raise RuntimeError('maximum_preview_heading must be positive')
+        if self.curvature_preview_distance <= 0.0:
+            raise RuntimeError('curvature_preview_distance must be positive')
         if self.max_steering_rate <= 0.0:
             raise RuntimeError('max_steering_rate must be positive')
         if self.max_lateral_acceleration <= 0.0:
@@ -427,6 +441,19 @@ class PurePursuitNode(Node):
             return 0.0
         return max(0.0, float(self.current_odom.twist.twist.linear.x))
 
+    def max_curvature_ahead(self, preview_distance):
+        """Return the sharpest path curvature within preview_distance ahead."""
+        count = len(self.path_curvatures)
+        travelled = 0.0
+        peak = 0.0
+        for offset in range(count):
+            index = (self.nearest_index + offset) % count
+            peak = max(peak, self.path_curvatures[index])
+            travelled += self.path_segment_lengths[index]
+            if travelled >= preview_distance:
+                break
+        return peak
+
     def active_lookahead_distance(self):
         scaled = self.lookahead_distance + self.lookahead_time * self.measured_speed()
         lookahead = self.clamp(
@@ -434,8 +461,11 @@ class PurePursuitNode(Node):
             self.minimum_lookahead_distance,
             self.maximum_lookahead_distance,
         )
-        if (self.nearest_index is not None and self.path_curvatures):
-            curvature = self.path_curvatures[self.nearest_index]
+        if (self.nearest_index is not None
+                and self.path_curvatures
+                and self.path_segment_lengths):
+            curvature = self.max_curvature_ahead(
+                self.curvature_preview_distance)
             if curvature > self.curvature_floor:
                 curvature_limited = (
                     self.maximum_preview_heading / curvature)

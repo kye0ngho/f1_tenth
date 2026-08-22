@@ -25,6 +25,12 @@ pure_pursuit_node:
     # Limit how much path heading a single preview may span. This preserves a
     # long, stable lookahead on straights without cutting across tight bends.
     maximum_preview_heading: 0.70
+    # How far ahead of the vehicle to look for the sharpest upcoming curvature
+    # when applying maximum_preview_heading above (see pure_pursuit_node.py's
+    # max_curvature_ahead/active_lookahead_distance for why a single point at
+    # nearest_index is not enough). Matches unicorn_l1_node's
+    # l1_curvature_preview_distance default.
+    curvature_preview_distance: 3.00
     max_steering_angle: 0.4189
     max_path_distance: 1.00
     max_heading_error: 1.3090  # 75 deg (was 60)
