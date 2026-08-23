@@ -1,5 +1,17 @@
 # Third-party notices
 
+## kye0ngho/f1_tenth Pure Pursuit
+
+`control/kyeongho_pp_node.py` adapts the Pure Pursuit safety/watchdog behavior
+from the public `test` branch at commit
+`a18a2e5fe7736c4a848a29c558200a2016dac28f`:
+
+https://github.com/kye0ngho/f1_tenth
+
+The upstream repository is distributed under the MIT License. The adapter
+keeps this project's existing Ackermann mux and calibrated VESC interface;
+it does not copy the upstream direct motor/servo output path.
+
 ## ForzaETH Race Stack
 
 `config/forzaeth_linear_bicycle_lookup_table.csv` and the MAP steering strategy in

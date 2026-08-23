@@ -40,6 +40,7 @@ setup(
     entry_points={
         'console_scripts': [
             'pure_pursuit_node = control.pure_pursuit_node:main',
+            'kyeongho_pp_node = control.kyeongho_pp_node:main',
             'linear_mpc_node = control.linear_mpc_node:main',
             'nonlinear_mpcc_node = control.nonlinear_mpcc_node:main',
             'unicorn_l1_node = control.unicorn_l1_node:main',

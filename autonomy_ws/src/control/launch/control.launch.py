@@ -131,6 +131,53 @@ def _launch_setup(context):
             ),
         ]
 
+    if controller == 'kyeongho_pp':
+        profile_name = LaunchConfiguration('mpc_profile').perform(context)
+        requested_speed = _parse_dynamic_speed(profile_name, maximum_speed)
+        if requested_speed is None:
+            raise RuntimeError(
+                'Kyeongho PP requires mpc_profile:=speed_<m/s> '
+                '(for example speed_1.0).')
+        return [
+            LogInfo(msg=(
+                'Controller=kyeongho_pp (adapted Pure Pursuit) '
+                f'speed={requested_speed:.2f}m/s')),
+            Node(
+                package='control',
+                executable='kyeongho_pp_node',
+                name='kyeongho_pp_node',
+                output='screen',
+                parameters=[
+                    LaunchConfiguration('params_file').perform(context),
+                    {
+                        'drive_mode': drive_mode,
+                        'global_frame_id': LaunchConfiguration(
+                            'global_frame_id').perform(context),
+                        'base_frame_id': LaunchConfiguration(
+                            'base_frame_id').perform(context),
+                        'odom_topic': LaunchConfiguration(
+                            'odom_topic').perform(context),
+                        'drive_topic': LaunchConfiguration(
+                            'drive_topic').perform(context),
+                        'emergency_stop_topic': LaunchConfiguration(
+                            'emergency_stop_topic').perform(context),
+                        'target_speed': requested_speed,
+                        'max_speed': requested_speed,
+                        'min_speed': min(0.25, requested_speed),
+                        'min_command_speed': float(LaunchConfiguration(
+                            'min_command_speed').perform(context)),
+                    },
+                ],
+            ),
+            Node(
+                package='control',
+                executable='kill_switch_node',
+                name='kill_switch_node',
+                output='screen',
+                parameters=[{'kill_switch_button': 6}],
+            ),
+        ]
+
     if controller == 'forza_map':
         profile_name = LaunchConfiguration('mpc_profile').perform(context)
         requested_speed = _parse_dynamic_speed(profile_name, maximum_speed)
@@ -326,7 +373,7 @@ def _launch_setup(context):
     if controller not in ('mpc', 'mpcc'):
         raise RuntimeError(
             f'Unknown controller {controller!r}; use none, pure_pursuit, '
-            'unicorn_l1, forza_map, mpc, or mpcc.')
+            'kyeongho_pp, unicorn_l1, forza_map, mpc, or mpcc.')
 
     config_path = LaunchConfiguration('mpc_params_file').perform(context)
     profile_name = LaunchConfiguration('mpc_profile').perform(context)
@@ -419,7 +466,8 @@ def generate_launch_description():
             'controller',
             default_value='pure_pursuit',
             description=(
-                'none, pure_pursuit, unicorn_l1, forza_map, mpc, or mpcc'),
+                'none, pure_pursuit, kyeongho_pp, unicorn_l1, forza_map, '
+                'mpc, or mpcc'),
         ),
         DeclareLaunchArgument(
             'mpc_profile',

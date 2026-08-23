@@ -139,6 +139,7 @@ launch에 안 붙은 것이니 `control/launch/control.launch.py`의 해당 컨�
 | 이름 | 방식 | 비고 |
 |---|---|---|
 | `pure_pursuit` | 속도 비례 lookahead + 곡률 기반 감속 | **기본, 가장 검증됨** |
+| `kyeongho_pp` | Pure Pursuit + auto-enable/stall-recovery watchdog | `kye0ngho/f1_tenth` 실차 어댑터, 정지 시 자동 재시도 |
 | `unicorn_l1` | HMCL-UNIST adaptive L1/PP | 곡률 기반 lookahead 상한 추가 패치 적용됨 |
 | `forza_map` | ForzaETH MAP pursuit | 7 m/s LUT 범위 내 |
 | `mpc` / `mpcc` | 선형/nonlinear MPC | 실험적, 검증 부족 |
