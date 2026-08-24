@@ -308,7 +308,11 @@ def generate_launch_description():
         bringup_share, 'config', 'bringup', 'vehicle_model.yaml')
 
     return LaunchDescription([
-        DeclareLaunchArgument('mode', default_value='sim'),
+        DeclareLaunchArgument(
+            'mode', default_value='real',
+            description=(
+                'real drives the car; this repo runs on the car, so the sim is '
+                'the case that has to ask for itself')),
         DeclareLaunchArgument('track', default_value='track03'),
         DeclareLaunchArgument(
             'localization', default_value='true',
@@ -325,7 +329,7 @@ def generate_launch_description():
             description='auto selects the raceline for track'),
         DeclareLaunchArgument(
             'controller',
-            default_value='unicorn_l1',
+            default_value='forza_map',
             description=(
                 'none, pure_pursuit (alias: racing_pp), unicorn_l1, '
                 'woong_pp, forza_map, mpc, or mpcc'),
