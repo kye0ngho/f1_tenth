@@ -1,0 +1,24 @@
+# f1tenth_ws/src upstream manifest
+# generated: 2026-08-24T23:01:17+09:00
+
+PACKAGE              BRANCH       COMMIT                                     REMOTE
+CL2-UWaterloo        master       2dde661aa6a55cefc1f62d294e1360ce77b3a708   local
+ackermann_mux        foxy-devel   b3c0b083ac03aa8c648537d7e4d22608fcd3440c   https://github.com/f1tenth/ackermann_mux.git
+bringup              main         5a0c02eb9583b40be5ee5d0db749f44b212236a8   https://github.com/goodash2one/bringup.git
+f1tenth_gym_ros      main         bb8c93bf0c37ab135664a6dd0e8c2c5b128dbcf6   https://github.com/goodash2one/f1tenth_gym_ros.git
+f1tenth_system       humble-devel 569444cec3d47fd3279b374e258eeaad663fd699   https://github.com/goodash2one/f1tenth_system.git
+mpc                  master       7271815ce687d5109746e2b0095ee622057355d1   local
+particle_filter      foxy-devel   4bf4ff6a4a83f3267daa3f02373fc7c5bb85a5b3   https://github.com/goodash2one/particle_filter.git
+realsense-ros        ros2-master  1cbd81be81e807eefb46f098e76381888ffc7001   https://github.com/IntelRealSense/realsense-ros.git
+slam_toolbox         humble       6dc2e1f22b6f7629ffa6c9c03d96e6dfcec388cb   https://github.com/goodash2one/slam_toolbox.git
+teleop_tools         master       ac63b92477232d8fd73fa9db938ead6735c31971   https://github.com/ros-teleop/teleop_tools.git
+transport_drivers    main         9fff59f66e4e0f9296501b3f671adc6543509996   https://github.com/ros-drivers/transport_drivers.git
+udp_msgs             main         d3c4522d87c04ad93f531874205b3d080cfbc920   https://github.com/flynneva/udp_msgs.git
+urg_node2            main         f02d8af22db2a4322217f4c5803494f4ca2903ff   https://github.com/Hokuyo-aut/urg_node2.git
+vesc                 ros2         153998df8545fe1781b975df88e411b4e71d4bfe   https://github.com/f1tenth/vesc.git
+
+# 서브모듈 (nested .git 제거됨, 작업트리는 보존)
+urg_node2/urg_library   https://github.com/UrgNetwork/urg_library.git
+
+# 주의: CL2-UWaterloo, mpc 은 Dockerfile에서 sparse-checkout 후 git init 된 것이라
+# REMOTE 가 local 이다. 재현하려면 Dockerfile 122-141 행을 참조할 것.

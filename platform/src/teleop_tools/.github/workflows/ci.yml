@@ -1,0 +1,39 @@
+name: Test teleop_tools
+on:
+  pull_request:
+  push:
+    branches:  
+      - master
+  schedule:
+    # Run every morning to detect flakiness and broken dependencies
+    - cron: '17 8 * * *'
+
+jobs:
+  ci:
+    name: Rolling source job
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: ros-tooling/setup-ros@v0.7
+        with:
+          required-ros-distributions: rolling
+      - uses: ros-tooling/action-ros-ci@v0.3
+        with:
+          target-ros2-distro: rolling
+          # build all packages listed in the meta package
+          package-name:
+            joy_teleop
+            key_teleop
+            mouse_teleop
+            teleop_tools
+            teleop_tools_msgs
+      - uses: codecov/codecov-action@v3
+        with:
+          file: ros_ws/lcov/total_coverage.info
+          flags: unittests
+          name: codecov-umbrella
+      - uses: actions/upload-artifact@v3
+        with:
+          name: colcon-logs-${{ matrix.os }}
+          path: ros_ws/log

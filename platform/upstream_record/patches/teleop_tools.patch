@@ -1,0 +1,13 @@
+diff --git a/joy_teleop/joy_teleop/joy_teleop.py b/joy_teleop/joy_teleop/joy_teleop.py
+index 6c15330..a5b1809 100644
+--- a/joy_teleop/joy_teleop/joy_teleop.py
++++ b/joy_teleop/joy_teleop/joy_teleop.py
+@@ -181,7 +181,7 @@ class JoyTeleopTopicCommand(JoyTeleopCommand):
+ 
+         qos = rclpy.qos.QoSProfile(history=rclpy.qos.QoSHistoryPolicy.KEEP_LAST,
+                                    depth=1,
+-                                   reliability=rclpy.qos.QoSReliabilityPolicy.RELIABLE,
++                                   reliability=rclpy.qos.QoSReliabilityPolicy.BEST_EFFORT,
+                                    durability=rclpy.qos.QoSDurabilityPolicy.VOLATILE)
+ 
+         self.pub = node.create_publisher(self.topic_type, config['topic_name'], qos)

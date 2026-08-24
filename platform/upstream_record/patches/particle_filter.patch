@@ -1,0 +1,13 @@
+diff --git a/config/localize.yaml b/config/localize.yaml
+index ae6df5f..388fa4f 100644
+--- a/config/localize.yaml
++++ b/config/localize.yaml
+@@ -11,7 +11,7 @@ particle_filter:
+     viz: 1
+     max_viz_particles: 60
+     # ray marching method
+-    range_method: 'cddt'
++    range_method: 'rmgpu'
+     theta_discretization: 112
+     # range data filtering
+     max_range: 10
