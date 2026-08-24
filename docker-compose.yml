@@ -1,0 +1,10 @@
+services:
+  ros2-cyclonedds:
+    build: .
+    container_name: ros2_cyclonedds
+    network_mode: host
+    stdin_open: true
+    tty: true
+    environment:
+      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+      - CYCLONEDDS_URI=file:///etc/cyclonedds/cyclonedds.xml

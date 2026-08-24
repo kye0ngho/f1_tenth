@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<CycloneDDS xmlns="https://cdds.io/config" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://cdds.io/config https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd">
+  <Domain id="any">
+    <General>
+      <!-- host 네트워킹: 실제 호스트 인터페이스(와이파이/이더넷/루프백)를 명시적으로 사용
+           presence_required="false": 케이블 미연결 등으로 인터페이스가 없어도 나머지로 정상 동작 -->
+      <Interfaces>
+        <NetworkInterface name="eno1" priority="default" multicast="default" presence_required="false" />
+        <NetworkInterface name="wlp0s20f3" priority="default" multicast="default" presence_required="false" />
+        <NetworkInterface name="lo" priority="default" multicast="default" />
+      </Interfaces>
+      <AllowMulticast>default</AllowMulticast>
+      <MaxMessageSize>65500B</MaxMessageSize>
+    </General>
+    <Discovery>
+      <ParticipantIndex>auto</ParticipantIndex>
+      <!-- 다른 호스트/컨테이너와 통신이 필요하면 아래 주석을 해제하고 peer IP를 추가하세요
+      <Peers>
+        <Peer address="192.168.0.10" />
+      </Peers>
+      -->
+    </Discovery>
+    <Tracing>
+      <Verbosity>warning</Verbosity>
+      <OutputFile>stdout</OutputFile>
+    </Tracing>
+  </Domain>
+</CycloneDDS>
