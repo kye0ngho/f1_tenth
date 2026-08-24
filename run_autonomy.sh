@@ -14,7 +14,7 @@ group_has_ros_processes() {
   ps -eo pgid=,args= | awk -v target="$group_id" '
     $1 == target && ($0 ~ /ros2 launch f1tenth_bringup autonomy.launch.py/ ||
                      $0 ~ /\/sim_ws\/install\// ||
-                     $0 ~ /\/home\/misys\/shared_dir\/autonomy_ws\/install\// ||
+                     $0 ~ /\/opt\/f1tenth-build\/autonomous\/install\// ||
                      $0 ~ /\/opt\/ros\/humble\/lib\/nav2_/ ||
                      $0 ~ /\/opt\/ros\/humble\/lib\/rviz2\//) {
       found = 1
@@ -86,8 +86,8 @@ done < <(ps -eo ppid=,pgid=,args= | awk '
   $1 == 1 && ($0 ~ /\/sim_ws\/install\/f1tenth_gym_ros\/lib\/f1tenth_gym_ros\/gym_bridge/ ||
               $0 ~ /\/sim_ws\/install\/planning\/lib\/planning\/waypoint_planner_node/ ||
               $0 ~ /\/sim_ws\/install\/control\/lib\/control\// ||
-              $0 ~ /\/home\/misys\/shared_dir\/autonomy_ws\/install\/planning\/lib\/planning\/waypoint_planner_node/ ||
-              $0 ~ /\/home\/misys\/shared_dir\/autonomy_ws\/install\/control\/lib\/control\// ||
+              $0 ~ /\/opt\/f1tenth-build\/autonomous\/install\/planning\/lib\/planning\/waypoint_planner_node/ ||
+              $0 ~ /\/opt\/f1tenth-build\/autonomous\/install\/control\/lib\/control\// ||
               $0 ~ /\/opt\/ros\/humble\/lib\/nav2_(amcl|map_server|lifecycle_manager)\// ||
               $0 ~ /\/opt\/ros\/humble\/lib\/robot_state_publisher\/robot_state_publisher.*ego_robot_state_publisher/) {
     print $2
@@ -99,11 +99,11 @@ done < <(ps -eo ppid=,pgid=,args= | awk '
 source /opt/ros/humble/setup.bash
 if [[ -f /sim_ws/install/setup.bash ]]; then
   source /sim_ws/install/setup.bash
-elif [[ -f /home/misys/shared_dir/autonomy_ws/install/setup.bash ]]; then
+elif [[ -f /opt/f1tenth-build/autonomous/install/setup.bash ]]; then
   if [[ -f /home/misys/f1tenth_ws/install/setup.bash ]]; then
     source /home/misys/f1tenth_ws/install/setup.bash
   fi
-  source /home/misys/shared_dir/autonomy_ws/install/setup.bash
+  source /opt/f1tenth-build/autonomous/install/setup.bash
 else
   echo 'Autonomy install/setup.bash was not found.' >&2
   exit 1
