@@ -132,7 +132,8 @@ def _launch_setup(context, catalog_path, vehicle_path):
         raise RuntimeError(
             f'Unknown track {track_name!r}; available tracks: {available}')
     track = tracks[track_name]
-    data_share = get_package_share_directory('data')
+    data_share = os.path.join(
+        get_package_share_directory('autonomous'), 'data')
     catalog_raceline = os.path.join(
         data_share, 'waypoints', track['raceline'])
     waypoint_argument = LaunchConfiguration('waypoint_csv').perform(context)
@@ -144,8 +145,8 @@ def _launch_setup(context, catalog_path, vehicle_path):
         controller = LaunchConfiguration('controller').perform(context)
         map_argument = LaunchConfiguration('map_yaml').perform(context)
         map_yaml = (
-            os.path.join(get_package_share_directory('data'),
-                         'maps', f'{track["map_name"]}.yaml')
+            os.path.join(data_share, 'maps',
+                         f'{track["map_name"]}.yaml')
             if map_argument == 'auto' else map_argument)
         actions = [
             LogInfo(msg=(
@@ -227,7 +228,7 @@ def _launch_setup(context, catalog_path, vehicle_path):
         start_x, start_y, start_yaw = track['start']
     common = {
         'map_path': os.path.join(
-            get_package_share_directory('data'),
+            os.path.join(get_package_share_directory('autonomous'), 'data'),
             'maps', track['map_name']),
         'map_ext': track['map_ext'],
         'start_x': start_x,

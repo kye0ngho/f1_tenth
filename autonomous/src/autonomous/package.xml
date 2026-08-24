@@ -24,7 +24,6 @@
   <depend>visualization_msgs</depend>
 
   <exec_depend>launch</exec_depend>
-  <exec_depend>data</exec_depend>
   <exec_depend>nav2_amcl</exec_depend>
   <exec_depend>nav2_lifecycle_manager</exec_depend>
   <exec_depend>nav2_map_server</exec_depend>

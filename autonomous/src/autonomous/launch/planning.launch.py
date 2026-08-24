@@ -72,7 +72,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'waypoint_csv',
             default_value=os.path.join(
-                get_package_share_directory('data'), 'waypoints',
+                package_share, 'data', 'waypoints',
                 'track03_raceline.csv'),
             description='Optional waypoint/raceline CSV override'
         ),

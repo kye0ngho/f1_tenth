@@ -43,6 +43,20 @@ setup(
             os.path.join('share', package_name, 'config', 'bringup'),
             glob('config/bringup/*')
         ),
+        (
+            os.path.join('share', package_name, 'config', 'slam'),
+            glob('config/slam/*')
+        ),
+        # Track assets ship with the package rather than as a separate one, so
+        # a map edit does not need a second package rebuilt and installed.
+        (
+            os.path.join('share', package_name, 'data', 'maps'),
+            glob('data/maps/*')
+        ),
+        (
+            os.path.join('share', package_name, 'data', 'waypoints'),
+            glob('data/waypoints/*')
+        ),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
