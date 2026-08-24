@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  F1TENTH onboard <-> laptop DDS config for a congested venue WiFi.
+
+  Host path      : /home/jeonbotdae/shared_dir/config/cyclonedds.xml
+  Container path : /home/misys/shared_dir/config/cyclonedds.xml
+  Used via       : export CYCLONEDDS_URI=file:///home/misys/shared_dir/config/cyclonedds.xml
+
+  The laptop needs its OWN copy of this file with its OWN interface name in
+  <NetworkInterface name="..."/>.  Everything else can stay identical.
+-->
+<CycloneDDS xmlns="https://cdds.io/config"
+            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+            xsi:schemaLocation="https://cdds.io/config
+                                https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd">
+  <Domain Id="any">
+
+    <General>
+      <!--
+        Pin DDS to the Jetson's built-in WiFi only.  Without this, Cyclone also
+        binds the USB dongle (wlx588694fc5f41), the LiDAR ethernet (enP8p1s0)
+        and docker0, and sprays discovery traffic across all of them.
+      -->
+      <Interfaces>
+        <NetworkInterface name="wlP1p1s0" priority="default" multicast="default"/>
+      </Interfaces>
+
+      <!--
+        spdp = multicast is used ONLY for participant discovery; all endpoint
+        discovery and all user data goes unicast.  Venue APs handle multicast
+        badly (it is sent at the lowest basic rate and is never retried), so
+        keeping bulk traffic off multicast is the single biggest win here.
+      -->
+      <AllowMulticast>spdp</AllowMulticast>
+
+      <!--
+        Keep every RTPS datagram inside one 802.11 frame.  Cyclone's default is
+        14720B, which the IP layer then splits into ~11 fragments; on lossy WiFi
+        a single lost fragment discards the whole datagram.  1400B costs a little
+        throughput and buys a lot of loss tolerance.
+      -->
+      <MaxMessageSize>1400B</MaxMessageSize>
+      <FragmentSize>1344B</FragmentSize>
+    </General>
+
+    <Discovery>
+      <!--
+        Cyclone gives each participant (= each ROS node) a fixed discovery port
+        derived from its index, and with ParticipantIndex=auto it only probes up
+        to MaxAutoParticipantIndex.  That default is 9, i.e. 10 nodes per host per
+        domain, after which node creation fails outright with
+        "Failed to find a free participant index for domain 30".
+        FastDDS had no such limit, so this only shows up after switching to Cyclone.
+        The bringup alone uses ~10; bringup + autonomy + nav2 + rviz needs far more.
+      -->
+      <ParticipantIndex>auto</ParticipantIndex>
+      <MaxAutoParticipantIndex>120</MaxAutoParticipantIndex>
+
+      <!--
+        FALLBACK: if the venue AP blocks multicast entirely (common on guest /
+        crowded networks), discovery will silently find nothing.  In that case
+        set AllowMulticast to false above and uncomment this block, listing the
+        robot and the laptop.  Same list on both machines.
+
+      <Peers>
+        <Peer address="192.168.30.10"/>
+        <Peer address="192.168.30.XX"/>
+      </Peers>
+      -->
+    </Discovery>
+
+    <Internal>
+      <!--
+        The /map OccupancyGrid is ~198 KiB (509x399) and arrives as one burst of
+        150+ datagrams.  It is RELIABLE + TRANSIENT_LOCAL and must stay that way,
+        so the only way to stop it overflowing the receive buffer (and triggering
+        a retransmit storm) is to make the buffer big.
+        Requires net.core.rmem_max to be raised, or the kernel silently caps this.
+      -->
+      <SocketReceiveBufferSize min="10MB"/>
+    </Internal>
+
+  </Domain>
+</CycloneDDS>

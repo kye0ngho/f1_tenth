@@ -1,0 +1,50 @@
+pure_pursuit_node:
+  ros__parameters:
+    drive_mode: "sim"
+    enabled: false
+
+    global_frame_id: "map"
+    base_frame_id: "ego_racecar/base_link"
+    odom_topic: "/ego_racecar/odom"
+    path_topic: "/planning/path"
+    emergency_stop_topic: "/safety/emergency_stop"
+    # Rule 3.3.1 manual on/off kill switch, independent of AEB.
+    kill_switch_topic: "/safety/kill_switch"
+    avoidance_active_topic: "/planning/avoidance_active"
+    speed_limit_topic: "/planning/speed_limit"
+
+    # One platform-neutral output in both modes. Gym or the onboard
+    # ackermann_mux/VESC stack performs the final actuator conversion.
+    drive_topic: "/drive"
+
+    wheelbase: 0.324
+    lookahead_distance: 0.70
+    lookahead_time: 0.30
+    minimum_lookahead_distance: 0.55
+    maximum_lookahead_distance: 4.00
+    # Limit how much path heading a single preview may span. This preserves a
+    # long, stable lookahead on straights without cutting across tight bends.
+    maximum_preview_heading: 0.70
+    max_steering_angle: 0.4189
+    max_path_distance: 1.00
+    max_heading_error: 1.3090  # 75 deg (was 60)
+    search_back_points: 8
+    search_forward_points: 30
+
+    # First closed-loop test: deliberately conservative.
+    target_speed: 0.60
+    min_speed: 0.25
+    max_speed: 0.80
+    corner_slowdown_gain: 0.15
+    max_lateral_acceleration: 4.0
+    max_longitudinal_acceleration: 2.0
+    max_longitudinal_deceleration: 4.0
+    curvature_sample_distance: 0.25
+    curvature_floor: 0.02
+    use_dynamic_speed_limit: true
+    speed_limit_timeout: 0.50
+    max_steering_rate: 3.2
+
+    control_rate: 30.0
+    odom_timeout: 0.50
+    path_timeout: 2.00

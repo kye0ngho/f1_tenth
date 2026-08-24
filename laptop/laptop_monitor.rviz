@@ -1,0 +1,146 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+    Property Tree Widget:
+      Expanded: ~
+  - Class: rviz_common/Views
+    Name: Views
+Visualization Manager:
+  Class: ""
+  Name: root
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Enabled: true
+      Name: Grid
+      Cell Size: 1
+      Plane Cell Count: 20
+      Value: true
+
+    # /map is RELIABLE + TRANSIENT_LOCAL on purpose.  It is a one-shot latched
+    # message of ~198 KiB; a dropped fragment means no map at all, and there is
+    # no later sample to recover from.  Do NOT set this one to Best Effort.
+    - Class: rviz_default_plugins/Map
+      Enabled: true
+      Name: Map
+      Topic:
+        Depth: 1
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /map
+      Value: true
+
+    # Everything below is a continuously republished topic: losing a sample is
+    # harmless because a fresher one is already on the way.  Best Effort + depth 1
+    # means the robot never retransmits to this laptop and never queues for it.
+    - Class: rviz_default_plugins/LaserScan
+      Enabled: true
+      Name: LaserScan
+      Size (m): 0.03
+      Style: Points
+      Topic:
+        Depth: 1
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /scan
+      Value: true
+
+    - Class: rviz_default_plugins/Odometry
+      Enabled: true
+      Name: Odometry
+      Keep: 1
+      Covariance:
+        Value: false
+      Topic:
+        Depth: 1
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /odom
+      Value: true
+
+    - Class: rviz_default_plugins/Path
+      Enabled: true
+      Name: LocalPath
+      Color: 25; 255; 0
+      Topic:
+        Depth: 1
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /planning/path
+      Value: true
+
+    - Class: rviz_default_plugins/Path
+      Enabled: true
+      Name: GlobalPath
+      Color: 255; 170; 0
+      Topic:
+        Depth: 1
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /planning/global_path
+      Value: true
+
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: PlanningMarkers
+      Topic:
+        Depth: 1
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /planning/markers
+      Value: true
+
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: false
+      Name: LocalMarkers
+      Topic:
+        Depth: 1
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /planning/local_markers
+      Value: false
+
+    # TF has no QoS controls in RViz (see notes) - disable it if the link is bad
+    # and set Fixed Frame to a frame you do not need TF to resolve.
+    - Class: rviz_default_plugins/TF
+      Enabled: true
+      Name: TF
+      Show Arrows: false
+      Show Axes: true
+      Show Names: false
+      Value: true
+
+  Global Options:
+    Background Color: 48; 48; 48
+    Fixed Frame: map
+    Frame Rate: 15
+  Tools:
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+    - Class: rviz_default_plugins/SetInitialPose
+      Topic:
+        Depth: 1
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /initialpose
+    - Class: rviz_default_plugins/SetGoal
+      Topic:
+        Depth: 1
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /goal_pose
+  Value: true
+  Views:
+    Current:
+      Class: rviz_default_plugins/TopDownOrtho
+      Name: Current View
+      Scale: 40
+      Target Frame: <Fixed Frame>
