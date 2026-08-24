@@ -45,6 +45,7 @@ RUN source /opt/ros/${ROS_DISTRO}/setup.bash && \
     rm -rf /var/lib/apt/lists/*
 
 RUN echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> /root/.bashrc && \
-    echo "source /sim_ws/install/setup.bash" >> /root/.bashrc
+    echo "source /sim_ws/install/setup.bash" >> /root/.bashrc && \
+    echo "export LD_LIBRARY_PATH=\$LD_LIBRARY_PATH:/opt/ros/${ROS_DISTRO}/opt/rviz_ogre_vendor/lib" >> /root/.bashrc
 
 ENTRYPOINT ["/bin/bash"]

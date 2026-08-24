@@ -16,5 +16,11 @@ COPY cyclonedds.xml /etc/cyclonedds/cyclonedds.xml
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
+# entrypoint.sh only runs once as PID 1; a `docker exec -it ... bash`
+# session doesn't go through it, so source ROS and fix rviz2's Ogre lib
+# path (missing from the default ld path in this apt install) here too.
+RUN echo "source /opt/ros/humble/setup.bash" >> /root/.bashrc && \
+    echo "export LD_LIBRARY_PATH=\$LD_LIBRARY_PATH:/opt/ros/humble/opt/rviz_ogre_vendor/lib" >> /root/.bashrc
+
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["bash"]
