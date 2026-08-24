@@ -10,7 +10,7 @@ analyze_grip_bag.py.
 
 Operation:
 
-  1. Run the vehicle bringup only.  Do NOT start run_autonomy.sh -- minjae_pp
+  1. Run the vehicle bringup only.  Do NOT start the autonomy launch -- minjae_pp
      publishes a zero command to the same topic at 50 Hz while disabled, and
      the two publishers would fight.  This script warns if it sees one.
   2. Put the car on a stand and verify the kill switch before wheels-down:
