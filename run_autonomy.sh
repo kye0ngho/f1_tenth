@@ -99,8 +99,8 @@ source /opt/ros/humble/setup.bash
 if [[ -f /sim_ws/install/setup.bash ]]; then
   source /sim_ws/install/setup.bash
 elif [[ -f /opt/f1tenth-build/autonomous/install/setup.bash ]]; then
-  if [[ -f /home/misys/f1tenth_ws/install/setup.bash ]]; then
-    source /home/misys/f1tenth_ws/install/setup.bash
+  if [[ -f /opt/f1tenth-build/platform/install/setup.bash ]]; then
+    source /opt/f1tenth-build/platform/install/setup.bash
   fi
   source /opt/f1tenth-build/autonomous/install/setup.bash
 else

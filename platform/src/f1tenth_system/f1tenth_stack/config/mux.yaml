@@ -13,3 +13,19 @@ ackermann_mux:
         topic   : safety
         timeout : 0.2
         priority: 200
+
+    # A lock masks every topic whose priority is below the lock's, and engages
+    # either when its Bool reads true or when its publisher goes silent
+    # (isLocked() == hasExpired() || message.data).
+    #
+    # kill_switch_node publishes /safety/kill_switch at 20Hz, so priority 50
+    # stops navigation (10) while leaving joystick (100) and AEB (200) usable,
+    # and the timeout turns a dead autonomy session into a stopped car instead
+    # of one still driving on stale /auto commands.  Without this the kill
+    # switch is only advisory: it works because the controllers choose to read
+    # it, and does nothing about a controller that stops reading it.
+    locks:
+      kill_switch:
+        topic   : /safety/kill_switch
+        timeout : 0.5
+        priority: 50
