@@ -12,7 +12,7 @@ signal_received=0
 group_has_ros_processes() {
   local group_id=$1
   ps -eo pgid=,args= | awk -v target="$group_id" '
-    $1 == target && ($0 ~ /ros2 launch f1tenth_bringup autonomy.launch.py/ ||
+    $1 == target && ($0 ~ /ros2 launch autonomous autonomy.launch.py/ ||
                      $0 ~ /\/sim_ws\/install\// ||
                      $0 ~ /\/opt\/f1tenth-build\/autonomous\/install\// ||
                      $0 ~ /\/opt\/ros\/humble\/lib\/nav2_/ ||
@@ -73,7 +73,7 @@ fi
 while read -r previous_pgid; do
   [[ -n $previous_pgid ]] && terminate_group "$previous_pgid"
 done < <(ps -eo pgid=,args= | awk '
-  /[r]os2 launch f1tenth_bringup autonomy.launch.py/ {print $1}
+  /[r]os2 launch autonomous autonomy.launch.py/ {print $1}
 ' | sort -nu)
 
 # If a terminal or ros2 launch crashed, its children can be re-parented to PID
@@ -86,8 +86,7 @@ done < <(ps -eo ppid=,pgid=,args= | awk '
   $1 == 1 && ($0 ~ /\/sim_ws\/install\/f1tenth_gym_ros\/lib\/f1tenth_gym_ros\/gym_bridge/ ||
               $0 ~ /\/sim_ws\/install\/planning\/lib\/planning\/waypoint_planner_node/ ||
               $0 ~ /\/sim_ws\/install\/control\/lib\/control\// ||
-              $0 ~ /\/opt\/f1tenth-build\/autonomous\/install\/planning\/lib\/planning\/waypoint_planner_node/ ||
-              $0 ~ /\/opt\/f1tenth-build\/autonomous\/install\/control\/lib\/control\// ||
+              $0 ~ /\/opt\/f1tenth-build\/autonomous\/install\/autonomous\/lib\/autonomous\// ||
               $0 ~ /\/opt\/ros\/humble\/lib\/nav2_(amcl|map_server|lifecycle_manager)\// ||
               $0 ~ /\/opt\/ros\/humble\/lib\/robot_state_publisher\/robot_state_publisher.*ego_robot_state_publisher/) {
     print $2
@@ -116,7 +115,7 @@ trap cleanup EXIT
 # The wrapper alone owns the session lock.  Do not let ros2 launch or any of
 # its descendants inherit fd 9; otherwise a killed terminal leaves the flock
 # held by orphaned ROS children and prevents the next run from recovering it.
-setsid ros2 launch f1tenth_bringup autonomy.launch.py "$@" 9>&- &
+setsid ros2 launch autonomous autonomy.launch.py "$@" 9>&- &
 session_pgid=$!
 printf '%s\n' "$session_pgid" >"$session_file"
 
