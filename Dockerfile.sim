@@ -13,8 +13,11 @@ RUN apt-get update && \
         python3-dev \
         libeigen3-dev \
         tmux \
-        ros-${ROS_DISTRO}-rviz2 && \
+        ros-${ROS_DISTRO}-rviz2 \
+        ros-${ROS_DISTRO}-rmw-cyclonedds-cpp && \
     rm -rf /var/lib/apt/lists/*
+
+ENV RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 
 WORKDIR /sim_ws
 

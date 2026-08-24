@@ -8,3 +8,23 @@ services:
     environment:
       - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
       - CYCLONEDDS_URI=file:///etc/cyclonedds/cyclonedds.xml
+      # DISPLAY comes from the host shell at `docker compose up` time; run
+      # `xhost +si:localuser:root` once per host login first (X server
+      # access control resets on login/reboot, this doesn't persist itself).
+      - DISPLAY=${DISPLAY}
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
+
+  f1tenth-sim:
+    build:
+      context: .
+      dockerfile: Dockerfile.sim
+    container_name: f1tenth_sim
+    network_mode: host
+    stdin_open: true
+    tty: true
+    environment:
+      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+      - DISPLAY=${DISPLAY}
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
