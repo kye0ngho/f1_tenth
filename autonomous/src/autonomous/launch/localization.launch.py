@@ -10,9 +10,9 @@ from launch_ros.actions import Node
 
 
 def generate_launch_description():
-    bringup_share = get_package_share_directory('f1tenth_bringup')
+    bringup_share = get_package_share_directory('autonomous')
     amcl_config = os.path.join(
-        bringup_share, 'config', 'amcl_common.yaml')
+        bringup_share, 'config', 'bringup', 'amcl_common.yaml')
 
     return LaunchDescription([
         DeclareLaunchArgument('map_yaml'),

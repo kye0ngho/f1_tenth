@@ -132,9 +132,9 @@ def _launch_setup(context, catalog_path, vehicle_path):
         raise RuntimeError(
             f'Unknown track {track_name!r}; available tracks: {available}')
     track = tracks[track_name]
-    planning_share = get_package_share_directory('planning')
+    data_share = get_package_share_directory('data')
     catalog_raceline = os.path.join(
-        planning_share, 'waypoints', track['raceline'])
+        data_share, 'waypoints', track['raceline'])
     waypoint_argument = LaunchConfiguration('waypoint_csv').perform(context)
     waypoint_csv = (
         catalog_raceline if waypoint_argument == 'auto'
@@ -144,7 +144,8 @@ def _launch_setup(context, catalog_path, vehicle_path):
         controller = LaunchConfiguration('controller').perform(context)
         map_argument = LaunchConfiguration('map_yaml').perform(context)
         map_yaml = (
-            f'/home/misys/shared_dir/maps/{track["map_name"]}.yaml'
+            os.path.join(get_package_share_directory('data'),
+                         'maps', f'{track["map_name"]}.yaml')
             if map_argument == 'auto' else map_argument)
         actions = [
             LogInfo(msg=(
@@ -152,7 +153,7 @@ def _launch_setup(context, catalog_path, vehicle_path):
                 f'speed={requested_speed:.2f}m/s '
                 'obstacle_policy=automatic '
                 'output=/auto enabled=false')),
-            _include('planning', 'planning.launch.py', {
+            _include('autonomous', 'planning.launch.py', {
                 'waypoint_csv': waypoint_csv,
                 # The planner stays active for Q1/Q2/Q3. With no detected
                 # obstacle it republishes the global path; otherwise it
@@ -170,7 +171,7 @@ def _launch_setup(context, catalog_path, vehicle_path):
                 'wheelbase': vehicle['wheelbase'],
                 'max_steering_angle': vehicle['max_steering_angle'],
             }),
-            _include('control', 'control.launch.py', {
+            _include('autonomous', 'control.launch.py', {
                 'controller': controller,
                 'mpc_profile': speed_profile,
                 'drive_mode': 'real',
@@ -202,7 +203,7 @@ def _launch_setup(context, catalog_path, vehicle_path):
         ]
         if _as_bool(LaunchConfiguration('localization').perform(context)):
             actions.insert(1, _include(
-                'f1tenth_bringup', 'localization.launch.py', {
+                'autonomous', 'localization.launch.py', {
                     'map_yaml': map_yaml,
                     'base_frame_id': 'base_link',
                     'odom_frame_id': 'odom',
@@ -226,7 +227,7 @@ def _launch_setup(context, catalog_path, vehicle_path):
         start_x, start_y, start_yaw = track['start']
     common = {
         'map_path': os.path.join(
-            get_package_share_directory('f1tenth_gym_ros'),
+            get_package_share_directory('data'),
             'maps', track['map_name']),
         'map_ext': track['map_ext'],
         'start_x': start_x,
@@ -258,7 +259,7 @@ def _launch_setup(context, catalog_path, vehicle_path):
             f'track={track_name} controller={controller} '
             f'speed={requested_speed:.2f}m/s friction={friction}')),
         _include('f1tenth_gym_ros', 'gym_bridge_launch.py', common),
-        _include('planning', 'planning.launch.py', {
+        _include('autonomous', 'planning.launch.py', {
             'waypoint_csv': waypoint_csv,
             # The same planner and AEB chain runs in both modes. `obstacles`
             # only controls simulator fixture spawning.
@@ -276,7 +277,7 @@ def _launch_setup(context, catalog_path, vehicle_path):
             'wheelbase': vehicle['wheelbase'],
             'max_steering_angle': vehicle['max_steering_angle'],
         }),
-        _include('control', 'control.launch.py', {
+        _include('autonomous', 'control.launch.py', {
             'controller': controller,
             'mpc_profile': speed_profile,
             'drive_mode': 'sim',
@@ -300,10 +301,10 @@ def _launch_setup(context, catalog_path, vehicle_path):
 
 
 def generate_launch_description():
-    bringup_share = get_package_share_directory('f1tenth_bringup')
-    catalog_path = os.path.join(bringup_share, 'config', 'tracks.yaml')
+    bringup_share = get_package_share_directory('autonomous')
+    catalog_path = os.path.join(bringup_share, 'config', 'bringup', 'tracks.yaml')
     vehicle_path = os.path.join(
-        bringup_share, 'config', 'vehicle_model.yaml')
+        bringup_share, 'config', 'bringup', 'vehicle_model.yaml')
 
     return LaunchDescription([
         DeclareLaunchArgument('mode', default_value='sim'),
@@ -316,8 +317,8 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'map_yaml', default_value='auto',
             description=(
-                'Real map YAML; auto selects /home/misys/shared_dir/maps/'
-                '<track>.yaml')),
+                'Real map YAML; auto selects the map for <track> '
+                'from the data package')),
         DeclareLaunchArgument(
             'waypoint_csv', default_value='auto',
             description='auto selects the raceline for track'),

@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from planning.local_planner_core import (
+from autonomous.planning.local_planner_core import (
     ClosedPathGeometry,
     adaptive_candidate_offsets,
     adaptive_map_endpoint_threshold,

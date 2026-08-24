@@ -26,7 +26,7 @@ from std_msgs.msg import Bool, Float32, String
 from tf2_ros import Buffer, TransformException, TransformListener
 from visualization_msgs.msg import Marker, MarkerArray
 
-from planning.local_planner_core import (
+from autonomous.planning.local_planner_core import (
     ClosedPathGeometry,
     adaptive_candidate_offsets,
     adaptive_map_endpoint_threshold,

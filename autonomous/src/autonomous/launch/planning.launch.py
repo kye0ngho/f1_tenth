@@ -41,7 +41,7 @@ def _launch_setup(context):
         waypoint_overrides['path_topic'] = '/planning/path'
 
     actions = [Node(
-        package='planning',
+        package='autonomous',
         executable='waypoint_planner_node',
         name='waypoint_planner_node',
         output='screen',
@@ -52,7 +52,7 @@ def _launch_setup(context):
     )]
     if local_planner:
         actions.append(Node(
-            package='planning',
+            package='autonomous',
             executable='local_obstacle_planner_node',
             name='local_obstacle_planner_node',
             output='screen',
@@ -62,17 +62,18 @@ def _launch_setup(context):
 
 
 def generate_launch_description():
-    package_share = get_package_share_directory('planning')
+    package_share = get_package_share_directory('autonomous')
     return LaunchDescription([
         DeclareLaunchArgument(
             'params_file',
-            default_value=os.path.join(package_share, 'config', 'params.yaml'),
+            default_value=os.path.join(package_share, 'config', 'planning', 'params.yaml'),
             description='Path to planning params.yaml'
         ),
         DeclareLaunchArgument(
             'waypoint_csv',
             default_value=os.path.join(
-                package_share, 'waypoints', 'track03_raceline.csv'),
+                get_package_share_directory('data'), 'waypoints',
+                'track03_raceline.csv'),
             description='Optional waypoint/raceline CSV override'
         ),
         DeclareLaunchArgument('local_planner', default_value='true'),

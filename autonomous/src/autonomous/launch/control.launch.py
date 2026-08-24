@@ -45,7 +45,7 @@ def _as_bool(value):
 
 
 def _launch_setup(context):
-    package_share = get_package_share_directory('control')
+    package_share = get_package_share_directory('autonomous')
     controller = LaunchConfiguration('controller').perform(context)
     drive_mode = LaunchConfiguration('drive_mode').perform(context)
     if drive_mode not in ('sim', 'real'):
@@ -80,7 +80,7 @@ def _launch_setup(context):
             LogInfo(msg=(
                 f'Controller={controller} speed={requested_speed:.2f}m/s')),
             Node(
-                package='control',
+                package='autonomous',
                 executable=pp_executable,
                 name=pp_executable,
                 output='screen',
@@ -144,7 +144,7 @@ def _launch_setup(context):
                 ],
             ),
             Node(
-                package='control',
+                package='autonomous',
                 executable='kill_switch_node',
                 name='kill_switch_node',
                 output='screen',
@@ -163,7 +163,7 @@ def _launch_setup(context):
             'steering_lookup_table').perform(context)
         if table_argument == 'auto':
             table_path = os.path.join(
-                package_share, 'config',
+                package_share, 'config', 'control',
                 'forzaeth_linear_bicycle_lookup_table.csv')
         else:
             table_path = table_argument
@@ -207,7 +207,7 @@ def _launch_setup(context):
                 'Controller=forza_map (ForzaETH MAP) '
                 f'speed={requested_speed:.2f}m/s model={table_path}')),
             Node(
-                package='control',
+                package='autonomous',
                 executable='forza_map_node',
                 name='forza_map_node',
                 output='screen',
@@ -257,7 +257,7 @@ def _launch_setup(context):
                 }, map_parameters],
             ),
             Node(
-                package='control',
+                package='autonomous',
                 executable='kill_switch_node',
                 name='kill_switch_node',
                 output='screen',
@@ -333,14 +333,14 @@ def _launch_setup(context):
                 f'Controller={controller} speed={requested_speed:.2f}m/s '
                 f'corner_min={min_reference_speed:.2f}m/s')),
             Node(
-                package='control',
+                package='autonomous',
                 executable='unicorn_l1_node',
                 name='unicorn_l1_node',
                 output='screen',
                 parameters=[parameters],
             ),
             Node(
-                package='control',
+                package='autonomous',
                 executable='kill_switch_node',
                 name='kill_switch_node',
                 output='screen',
@@ -423,14 +423,14 @@ def _launch_setup(context):
                 f'corner_min={min_reference_speed:.2f}m/s '
                 '(sim-only-validated obstacle-tuning fork, low speed first)')),
             Node(
-                package='control',
+                package='autonomous',
                 executable='woong_pp_node',
                 name='woong_pp_node',
                 output='screen',
                 parameters=[parameters],
             ),
             Node(
-                package='control',
+                package='autonomous',
                 executable='kill_switch_node',
                 name='kill_switch_node',
                 output='screen',
@@ -504,7 +504,7 @@ def _launch_setup(context):
     return [
         LogInfo(msg=selection_log),
         Node(
-            package='control',
+            package='autonomous',
             executable=(
                 'nonlinear_mpcc_node'
                 if controller == 'mpcc' else 'linear_mpc_node'),
@@ -518,11 +518,11 @@ def _launch_setup(context):
 
 
 def generate_launch_description():
-    package_share = get_package_share_directory('control')
+    package_share = get_package_share_directory('autonomous')
     return LaunchDescription([
         DeclareLaunchArgument(
             'params_file',
-            default_value=os.path.join(package_share, 'config', 'params.yaml'),
+            default_value=os.path.join(package_share, 'config', 'control', 'params.yaml'),
         ),
         DeclareLaunchArgument('drive_mode', default_value='sim'),
         DeclareLaunchArgument(
@@ -547,7 +547,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'mpc_params_file',
             default_value=os.path.join(
-                package_share, 'config', 'mpc_params.yaml'),
+                package_share, 'config', 'control', 'mpc_params.yaml'),
         ),
         DeclareLaunchArgument(
             'steering_lookup_table',

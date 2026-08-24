@@ -16,7 +16,7 @@ import rclpy
 from rclpy._rclpy_pybind11 import RCLError
 from rclpy.executors import ExternalShutdownException
 
-from control.linear_mpc_node import LinearMpcNode
+from autonomous.control.linear_mpc_node import LinearMpcNode
 
 
 class NonlinearMpccNode(LinearMpcNode):
