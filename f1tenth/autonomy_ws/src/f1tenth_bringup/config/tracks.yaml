@@ -1,0 +1,14 @@
+default_track: busan
+
+tracks:
+  track05:
+    map_name: track05
+    map_ext: .pgm
+    raceline: track05.csv
+    start: raceline
+
+  busan:
+    map_name: busan
+    map_ext: .pgm
+    raceline: busan_raceline.csv
+    start: raceline
