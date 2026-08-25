@@ -313,7 +313,7 @@ def generate_launch_description():
             description=(
                 'real drives the car; this repo runs on the car, so the sim is '
                 'the case that has to ask for itself')),
-        DeclareLaunchArgument('track', default_value='track03'),
+        DeclareLaunchArgument('track', default_value='busan'),
         DeclareLaunchArgument(
             'localization', default_value='true',
             description=(
