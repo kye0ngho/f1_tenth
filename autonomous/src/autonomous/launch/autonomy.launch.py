@@ -329,10 +329,11 @@ def generate_launch_description():
             description='auto selects the raceline for track'),
         DeclareLaunchArgument(
             'controller',
-            default_value='forza_map',
+            default_value='racing_v1_pp',
             description=(
-                'none, pure_pursuit (alias: racing_pp), unicorn_l1, '
-                'woong_pp, forza_map, mpc, or mpcc'),
+                'none, pure_pursuit (alias: racing_pp), racing_v1_pp, '
+                'racing_v2_pp, racing_v3_pp, unicorn_l1, woong_pp, '
+                'forza_map, mpc, or mpcc'),
         ),
         DeclareLaunchArgument(
             'speed',
