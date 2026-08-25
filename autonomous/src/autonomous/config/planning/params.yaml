@@ -88,6 +88,18 @@ local_obstacle_planner_node:
     wheelbase: 0.324
     max_steering_angle: 0.4189
     obstacle_safety_margin: 0.01
+    # Pure-pursuit tracking lag grows with ego speed (same reaction time,
+    # more distance covered), so a fixed clearance margin validated at low
+    # speed can be consumed entirely at race pace. speed_clearance_baseline
+    # is the speed the static margins above were actually validated at.
+    speed_clearance_gain: 0.15
+    speed_clearance_baseline: 2.0
+    # candidate_is_safe() rejects a candidate below this clearance instead of
+    # accepting anything >= 0.0: candidate scoring always prefers the
+    # smallest feasible offset, so a bare >=0 acceptance test means the
+    # offset actually commanded routinely carried only a few millimetres of
+    # theoretical clearance.
+    minimum_required_clearance: 0.04
 
     # Performance-oriented AEB: confirmed dense clusters only.  Physical
     # footprint collision and no-feasible-path stops remain unchanged.

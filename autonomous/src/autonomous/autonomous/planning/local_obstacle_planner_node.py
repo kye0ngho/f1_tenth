@@ -121,6 +121,21 @@ class LocalObstaclePlannerNode(Node):
         self.declare_parameter('wheelbase', 0.33)
         self.declare_parameter('max_steering_angle', 0.4189)
         self.declare_parameter('obstacle_safety_margin', 0.02)
+        # Pure-pursuit tracking lag grows with ego speed (same reaction time,
+        # more distance covered), so the same physical clearance margin that
+        # holds at one speed can be consumed entirely at a higher one.
+        # speed_clearance_baseline is the speed the static margins above were
+        # actually validated at.
+        self.declare_parameter('speed_clearance_gain', 0.15)
+        self.declare_parameter('speed_clearance_baseline', 2.0)
+        # candidate_is_safe() previously accepted any candidate with
+        # clearance >= 0.0. Candidate scoring always prefers the smallest
+        # feasible offset, so a bare >=0 acceptance test means the offset
+        # actually commanded routinely has only a few millimetres of
+        # theoretical clearance -- real tracking error alone can then clip
+        # the obstacle or wall. This requires genuine buffer on top of every
+        # other margin already folded into the clearance computation.
+        self.declare_parameter('minimum_required_clearance', 0.04)
         self.declare_parameter('aeb_corridor_half_width', 0.19)
         self.declare_parameter('aeb_reaction_time', 0.12)
         self.declare_parameter('aeb_max_deceleration', 2.0)
@@ -239,6 +254,12 @@ class LocalObstaclePlannerNode(Node):
             math.tan(self.max_steering_angle) / self.wheelbase)
         self.obstacle_margin = float(
             self.get_parameter('obstacle_safety_margin').value)
+        self.speed_clearance_gain = max(0.0, float(
+            self.get_parameter('speed_clearance_gain').value))
+        self.speed_clearance_baseline = float(
+            self.get_parameter('speed_clearance_baseline').value)
+        self.minimum_required_clearance = float(
+            self.get_parameter('minimum_required_clearance').value)
         self.aeb_half_width = float(
             self.get_parameter('aeb_corridor_half_width').value)
         self.aeb_reaction_time = float(
@@ -285,6 +306,7 @@ class LocalObstaclePlannerNode(Node):
         self.latest_scan_generation = 0
         self.last_aeb_scan_generation = -1
         self.aeb_detection_count = 0
+        self.aeb_stop_first_seen = None
         self.tracked_obstacles = []
         self.next_obstacle_id = 0
         self.last_safe_path = None
@@ -743,6 +765,39 @@ class LocalObstaclePlannerNode(Node):
             min(before, self.maximum_avoidance_before),
             min(after, self.maximum_avoidance_after))
 
+    def effective_obstacle_margin(self):
+        """Return the obstacle safety margin to use at the current speed.
+
+        Pure-pursuit tracking lag grows with ego speed (same reaction time,
+        more distance covered), so a margin that holds at one speed can be
+        consumed entirely at a higher one: the same obstacle, same margins,
+        can clear repeatedly at low speed and still clip the object once
+        speed rises, because the vehicle no longer tracks the planned
+        candidate as tightly. speed_clearance_baseline is the speed the
+        static margin above was actually validated at.
+        """
+        return (
+            self.obstacle_margin
+            + self.speed_clearance_gain * max(
+                0.0, self.speed - self.speed_clearance_baseline))
+
+    def effective_minimum_required_clearance(self):
+        """Return the minimum-clearance floor candidate_is_safe() enforces.
+
+        candidate_is_safe() previously accepted any candidate with
+        clearance >= 0.0. Candidate scoring always prefers the smallest
+        feasible offset, so a bare >=0 acceptance test means the offset
+        actually commanded routinely has only millimetres of theoretical
+        clearance -- real tracking error alone can then clip the obstacle
+        or wall. This floor requires genuine buffer on top of every other
+        margin already folded into the clearance computation, and scales
+        with speed for the same reason effective_obstacle_margin() does.
+        """
+        return (
+            self.minimum_required_clearance
+            + self.speed_clearance_gain * max(
+                0.0, self.speed - self.speed_clearance_baseline))
+
     def candidate_is_safe(
             self, points, vehicle_s, obstacles, planning_horizon,
             avoidance_after):
@@ -766,31 +821,43 @@ class LocalObstaclePlannerNode(Node):
         wall_margin = max(
             0.0, self.map_clearance - self.vehicle_clearance)
         map_extra_clearance = minimum_map_clearance - wall_margin
-        if map_extra_clearance < 0.0:
+        required_clearance = self.effective_minimum_required_clearance()
+        if map_extra_clearance < required_clearance:
             return False, map_extra_clearance, 'map'
 
+        obstacle_margin = self.effective_obstacle_margin()
         minimum_obstacle_clearance = float('inf')
         for obstacle in obstacles:
+            candidate_minimums = []
             surface_points = obstacle.get('surface_points')
             if surface_points is not None and len(surface_points):
-                minimum = minimum_surface_footprint_clearance(
+                candidate_minimums.append(minimum_surface_footprint_clearance(
                     local,
                     surface_points,
                     self.vehicle_length,
                     self.vehicle_width,
-                    self.obstacle_margin
-                    + self.candidate_clearance_buffer)
-            else:
-                minimum = minimum_surface_footprint_clearance(
-                    local,
-                    np.asarray([obstacle['center']]),
-                    self.vehicle_length + 2.0 * obstacle['radius'],
-                    self.vehicle_width + 2.0 * obstacle['radius'],
-                    self.obstacle_margin
-                    + self.candidate_clearance_buffer)
+                    obstacle_margin
+                    + self.candidate_clearance_buffer))
+            # Always also check a radius-inflated circle at the obstacle's
+            # centre, even when surface_points is present. A track object is
+            # usually only partially visible on the first confirmed frame
+            # (one near edge/corner) -- checking only those few points can
+            # accept a candidate that is safe against the sliver actually
+            # seen so far but not against the object's true, still-unseen
+            # extent. obstacle['radius'] already floors at
+            # obstacle_default_radius regardless of what has been observed,
+            # so this circle check catches that gap.
+            candidate_minimums.append(minimum_surface_footprint_clearance(
+                local,
+                np.asarray([obstacle['center']]),
+                self.vehicle_length + 2.0 * obstacle['radius'],
+                self.vehicle_width + 2.0 * obstacle['radius'],
+                obstacle_margin
+                + self.candidate_clearance_buffer))
+            minimum = min(candidate_minimums)
             minimum_obstacle_clearance = min(
                 minimum_obstacle_clearance, minimum)
-            if minimum < 0.0:
+            if minimum < required_clearance:
                 return False, minimum, 'obstacle'
         if map_extra_clearance <= minimum_obstacle_clearance:
             return True, map_extra_clearance, 'map'
@@ -812,17 +879,18 @@ class LocalObstaclePlannerNode(Node):
         # here as well keeps the path displaced twice as long and can push its
         # return transition into an otherwise unrelated wall.  The plateau
         # therefore represents only the measured object's longitudinal span.
-        fallback = obstacle['radius'] + self.obstacle_margin
+        margin = self.effective_obstacle_margin()
+        fallback = obstacle['radius'] + margin
         longitudinal_min = obstacle.get('longitudinal_min')
         longitudinal_max = obstacle.get('longitudinal_max')
         if longitudinal_min is None or longitudinal_max is None:
             return fallback, fallback
         hold_before = (
             max(0.0, -float(longitudinal_min))
-            + self.obstacle_margin)
+            + margin)
         hold_after = (
             max(0.0, float(longitudinal_max))
-            + self.obstacle_margin)
+            + margin)
         return hold_before, hold_after
 
     def obstacle_group_plateau_distances(self, primary, obstacles):
@@ -847,9 +915,10 @@ class LocalObstaclePlannerNode(Node):
                     center_delta + obstacle['radius']))
         if not relative_extents:
             return self.obstacle_plateau_distances(primary)
+        margin = self.effective_obstacle_margin()
         return (
-            max(0.0, -min(relative_extents)) + self.obstacle_margin,
-            max(0.0, max(relative_extents)) + self.obstacle_margin,
+            max(0.0, -min(relative_extents)) + margin,
+            max(0.0, max(relative_extents)) + margin,
         )
 
     def publish_speed_limit(self, value):
@@ -969,6 +1038,63 @@ class LocalObstaclePlannerNode(Node):
             marker_array.markers.append(marker)
         self.marker_pub.publish(marker_array)
 
+    def proactive_speed_cap(self, nearest_forward):
+        """Return the continuous stopping-distance speed cap, or None.
+
+        Mirrors the AEB stopping-distance formula (distance = reaction +
+        v^2/2a) but solved for v as a continuous cap instead of AEB's binary
+        trigger, using the gentler planning-horizon reaction time/
+        deceleration (not AEB's tight last-resort numbers) so it engages
+        earlier and smoothly. Returns None when there is nothing ahead to
+        react to, so the caller's own speed_limit is left untouched.
+        """
+        if not math.isfinite(nearest_forward):
+            return None
+        available = max(
+            0.0, nearest_forward - self.planning_distance_margin)
+        reaction_term = (
+            self.planning_deceleration * self.planning_reaction_time)
+        proactive_speed = -reaction_term + math.sqrt(
+            reaction_term ** 2 + 2.0 * self.planning_deceleration * available)
+        return max(self.minimum_avoidance_speed, proactive_speed)
+
+    def aeb_confirmation_stop(self, raw_path_stop):
+        """Return whether the confirmed emergency stop should engage.
+
+        aeb_confirmation_frames filters a single noisy scan, but at
+        scan_process_rate=20Hz that wait is itself ~0.15s -- reproduced on
+        busan at speed=5.0m/s: emergency_clearance was already negative
+        (path already overlapping a confirmed, clustered obstacle, not a
+        single noisy point) when this would first have been true, and the
+        vehicle can collide well within that confirmation wait.
+        aeb_critical_reaction_time bounds that wait by elapsed time instead
+        of frame count: once the path has stayed continuously overlapped for
+        that long, further waiting only costs stopping distance without
+        adding confidence -- the clearance is measured against clustered
+        points, not a single raw return.
+        """
+        # A planning timer may run more often than LaserScan processing. Count
+        # each sensor observation once so confirmation_frames represents real
+        # independent measurements instead of repeated use of one scan.
+        if self.latest_scan_generation != self.last_aeb_scan_generation:
+            self.aeb_detection_count = (
+                self.aeb_detection_count + 1 if raw_path_stop else 0)
+            self.last_aeb_scan_generation = self.latest_scan_generation
+
+        now = self.get_clock().now()
+        if raw_path_stop:
+            if self.aeb_stop_first_seen is None:
+                self.aeb_stop_first_seen = now
+            stop_elapsed = (
+                now - self.aeb_stop_first_seen).nanoseconds * 1e-9
+        else:
+            self.aeb_stop_first_seen = None
+            stop_elapsed = 0.0
+
+        return bool(
+            self.aeb_detection_count >= self.aeb_confirmation_frames
+            or stop_elapsed >= self.aeb_critical_reaction_time)
+
     def set_status(self, text):
         message = String()
         message.data = text
@@ -1062,7 +1188,7 @@ class LocalObstaclePlannerNode(Node):
                 required_lateral_clearance = (
                     self.vehicle_clearance
                     + surface_half_width
-                    + self.obstacle_margin
+                    + self.effective_obstacle_margin()
                     + self.candidate_clearance_buffer)
                 for value in adaptive_candidate_offsets(
                         obstacle_lateral,
@@ -1096,10 +1222,6 @@ class LocalObstaclePlannerNode(Node):
             # it exceeds both the physical limit and the local baseline, so
             # ordinary corner curvature is not mistaken for added avoidance
             # curvature.
-            baseline_curvature = self.candidate_curvature(
-                self.path_geometry.points, vehicle_s, planning_horizon)
-            allowed_curvature = max(
-                self.maximum_path_curvature, baseline_curvature)
             for offset in offsets:
                 base_before, base_after = (
                     self.current_avoidance_distances(offset))
@@ -1127,6 +1249,22 @@ class LocalObstaclePlannerNode(Node):
                         planning_horizon + hold_after, candidate_after)
                     curvature = self.candidate_curvature(
                         candidate, vehicle_s, evaluation_distance)
+                    # Compare against the baseline over this same window, not
+                    # a shorter one anchored only to planning_horizon. This
+                    # candidate's evaluation window commonly extends past
+                    # planning_horizon (hold_after + candidate_after can add
+                    # several metres), and a corner sitting in that extra
+                    # stretch is curvature the raceline itself must already
+                    # navigate. Measuring the baseline over a shorter window
+                    # would miss that corner and reject every avoidance
+                    # offset on its curvature -- an unrelated downstream
+                    # corner, not the manoeuvre -- exactly where a real track
+                    # places an obstacle right before a turn.
+                    baseline_curvature = self.candidate_curvature(
+                        self.path_geometry.points, vehicle_s,
+                        evaluation_distance)
+                    allowed_curvature = max(
+                        self.maximum_path_curvature, baseline_curvature)
                     # Use the configured robust local curvature for Ackermann
                     # feasibility. A near-maximum percentile on a piecewise
                     # linear path measures isolated waypoint impulses rather
@@ -1228,19 +1366,46 @@ class LocalObstaclePlannerNode(Node):
             self.vehicle_width,
             self.obstacle_margin)
         raw_path_stop = bool(emergency_clearance < 0.0)
-        # A planning timer may run more often than LaserScan processing. Count
-        # each sensor observation once so confirmation_frames represents real
-        # independent measurements instead of repeated use of one scan.
-        if self.latest_scan_generation != self.last_aeb_scan_generation:
-            self.aeb_detection_count = (
-                self.aeb_detection_count + 1 if raw_path_stop else 0)
-            self.last_aeb_scan_generation = self.latest_scan_generation
-        critical_stop = bool(
-            self.aeb_detection_count >= self.aeb_confirmation_frames)
+        critical_stop = self.aeb_confirmation_stop(raw_path_stop)
         stop.data = bool(critical_stop or not feasible)
         self.stop_pub.publish(stop)
         self.avoidance_pub.publish(avoidance)
         speed_limit = self.maximum_planning_speed
+        # Proactive, continuous speed governor: while an obstacle is tracked
+        # but no candidate avoidance path is confirmed safe yet -- including
+        # a NO_COLLISION_FREE_PATH stalemate still searching for one -- cap
+        # speed by how much distance is actually left to it, instead of
+        # commanding full speed right up until an abrupt AEB stop. This
+        # mirrors the AEB stopping-distance formula (distance = reaction +
+        # v^2/2a) but solved for v as a continuous cap instead of AEB's
+        # binary trigger, using the gentler planning-horizon reaction
+        # time/deceleration (not AEB's tight last-resort numbers) so it
+        # engages earlier and smoothly.
+        #
+        # Deliberately skipped once avoidance.data is true: a confirmed,
+        # locked-in safe candidate means the vehicle already knows it clears
+        # the obstacle/wall gap, so it should accelerate back out on that
+        # confirmed geometry (governed by the curvature-based limit below)
+        # instead of continuing to brake for an obstacle it has already
+        # solved a path around.
+        # Confirmed tracks (active) require obstacle_confirmation_frames
+        # consecutive hits before appearing here, same as avoidance itself --
+        # an obstacle confirmed only just before it would matter is missed by
+        # both this governor and avoidance if only `active` is consulted.
+        # nearest_corridor_distance is the same raw, unconfirmed scan-cluster
+        # distance the AEB check itself reacts to (computed every scan, no
+        # confirmation delay) -- folding it in here closes that blind spot
+        # for the proactive cap too. A false positive here only costs some
+        # speed, not a committed steering decision, so skipping confirmation
+        # is an acceptable trade even though avoidance itself still
+        # requires it.
+        nearest_forward = self.nearest_corridor_distance
+        if active:
+            nearest_forward = min(nearest_forward, active[0][0])
+        if not avoidance.data:
+            proactive_speed = self.proactive_speed_cap(nearest_forward)
+            if proactive_speed is not None:
+                speed_limit = min(speed_limit, proactive_speed)
         if avoidance.data:
             selected_curvature = self.candidate_curvature(
                 selected, vehicle_s, planning_horizon)
