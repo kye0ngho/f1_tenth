@@ -170,13 +170,16 @@ public:
     priority_type priority, AckermannMux * mux)
   : base_type(name, topic, timeout, priority, mux)
   {
+    // Best effort, not the system default.  joy_teleop publishes /teleop best
+    // effort, and a reliable subscriber does not match a best-effort publisher
+    // at all -- DDS refuses the connection and every joystick command is
+    // dropped before it reaches the mux.  Reliable publishers such as /auto
+    // still match a best-effort subscriber, so this direction is the one that
+    // works for all three inputs.  It is also what the author intended: the
+    // line below it asked for rmw_qos_profile_sensor_data.
     subscriber_ = mux_->create_subscription<ackermann_msgs::msg::AckermannDriveStamped>(
-      topic_, rclcpp::SystemDefaultsQoS(),
+      topic_, rclcpp::SensorDataQoS(),
       std::bind(&VelocityTopicHandle::callback, this, std::placeholders::_1));
-
-    // subscriber_ = nh_.create_subscription<ackermann_msgs::msg::AckermannDriveStamped>(
-    //    topic_, ackermann_qos_profile,
-    //  std::bind(&VelocityTopicHandle::callback, this, std::placeholders::_1));
   }
 
   bool isMasked(priority_type lock_priority) const
